@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "es2022",
-    "lib": ["es2022"],
+    "lib": ["es2022","DOM", "DOM.Iterable", "ESNext"],
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
 
