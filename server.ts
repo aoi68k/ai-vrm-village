@@ -2,7 +2,13 @@ import colyseus from 'colyseus';
 const { Server, Room } = colyseus;
 type Client = colyseus.Client;
 import { Schema, type, MapSchema } from '@colyseus/schema';
-import { createServer } from 'http';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
+import { createHash } from 'crypto';
+
+// プレイヤー識別用ハッシュ生成ヘルパー (SHA-256)
+export function generateUserHash(input: string, prefix = '#'): string {
+  return prefix + createHash('sha256').update(input).digest('hex').substring(0, 6);
+}
 
 // ==========================================
 // 1. Colyseus State Schemas (同期用ステート)
@@ -27,6 +33,9 @@ export class PlayerState extends Schema {
   @type("number") targetVoxelX: number = 0;
   @type("number") targetVoxelZ: number = 0;
   @type("number") lastActionTime: number = 0;
+  @type("string") userHash: string = ""; // 例: "#a8f3b2" または "~7d2f4a"
+  @type("string") authType: string = "guest"; // "github" または "guest"
+  @type("string") githubUsername: string = "";
 }
 
 export class NPCState extends Schema {
@@ -135,6 +144,8 @@ export class GOAPPlanner {
 export class VoxelGameRoom extends Room<GameWorldState> {
   private goapPlanner = new GOAPPlanner();
   private simulationInterval: any = null;
+  private playerAvatars = new Map<string, string>();
+  private playerColors = new Map<string, { hair: string; skin: string; clothing: string }>();
 
   onCreate(options: any) {
     this.setState(new GameWorldState());
@@ -164,12 +175,42 @@ export class VoxelGameRoom extends Room<GameWorldState> {
     player.y = 0.5;
     player.z = 0;
 
+    // 認証情報と固有ハッシュの設定
+    if (options.authType === 'github' && options.githubId) {
+      player.authType = 'github';
+      player.githubUsername = options.githubUsername || '';
+      player.userHash = generateUserHash('gh_' + options.githubId, '#');
+    } else {
+      player.authType = 'guest';
+      const clientIp = (client as any).ref?.remoteAddress || client.sessionId;
+      player.userHash = generateUserHash('guest_' + clientIp, '~');
+    }
+
     this.state.players.set(client.sessionId, player);
-    console.log(`👤 [Join] Player ${player.name} (${client.sessionId}) joined.`);
+    console.log(`👤 [Join] Player ${player.name} (${player.authType === 'github' ? '🐱' : '👤'}${player.userHash}) joined.`);
+
+    // 接続したプレイヤー自身に初期ハッシュ・認証情報を即座に返送
+    client.send('auth_init', {
+      sessionId: client.sessionId,
+      userHash: player.userHash,
+      authType: player.authType,
+      githubUsername: player.githubUsername,
+      name: player.name
+    });
+
+    // 既存プレイヤーのアバター画像と配色を新規参加者に個別に送信
+    this.playerAvatars.forEach((dataUrl, pid) => {
+      client.send('player_avatar_broadcast', { id: pid, dataUrl });
+    });
+    this.playerColors.forEach((colors, pid) => {
+      client.send('player_colors_broadcast', { id: pid, ...colors });
+    });
   }
 
   onLeave(client: Client) {
     this.state.players.delete(client.sessionId);
+    this.playerAvatars.delete(client.sessionId);
+    this.playerColors.delete(client.sessionId);
     console.log(`🚪 [Leave] Player (${client.sessionId}) disconnected.`);
   }
 
@@ -304,6 +345,77 @@ export class VoxelGameRoom extends Room<GameWorldState> {
         this.broadcast("voxel_placed", { x: data.x, y: data.y, z: data.z, type: newVoxel.type, bySessionId: client.sessionId }, { except: client });
       }
     });
+
+    // チャットメッセージ（テキスト & スタンプ）中継
+    this.onMessage("chat_message", (client, data: { text: string; senderName?: string; isStamp?: boolean }) => {
+      const player = this.state.players.get(client.sessionId);
+      const name = data.senderName || player?.name || `Player_${client.sessionId.substring(0, 4)}`;
+      const userHash = player?.userHash || '';
+      const authType = player?.authType || 'guest';
+      this.broadcast("chat_message", {
+        sessionId: client.sessionId,
+        senderName: name,
+        userHash,
+        authType,
+        text: data.text,
+        isStamp: !!data.isStamp,
+        timestamp: Date.now()
+      });
+    });
+
+    // プレイヤー名変更
+    this.onMessage("player_rename", (client, data: { name: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player && data.name) {
+        player.name = data.name.trim().substring(0, 20);
+        // 名前変更者本人を除いてブロードキャスト（本人への二重登録を防ぐ）
+        this.broadcast("player_renamed", { id: client.sessionId, name: player.name }, { except: client });
+      }
+    });
+
+    // VRM由来の配色情報をブロードキャスト（本人除く全員へ）
+    this.onMessage("player_colors", (client, data: { hair: string; skin: string; clothing: string }) => {
+      this.playerColors.set(client.sessionId, data);
+      this.broadcast("player_colors_broadcast", {
+        id: client.sessionId,
+        hair: data.hair,
+        skin: data.skin,
+        clothing: data.clothing
+      }, { except: client });
+    });
+
+    // VRM由来の顔写真アイコン（サムネイル）を受信しキャッシュ＆ブロードキャスト
+    this.onMessage("player_avatar", (client, data: { dataUrl: string }) => {
+      if (data && data.dataUrl) {
+        this.playerAvatars.set(client.sessionId, data.dataUrl);
+        this.broadcast("player_avatar_broadcast", {
+          id: client.sessionId,
+          dataUrl: data.dataUrl
+        }, { except: client });
+      }
+    });
+
+    // 認証情報検証 & ハッシュ昇格
+    this.onMessage("auth_verify", (client, data: { authType: 'github' | 'guest'; githubId?: string; githubUsername?: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      if (data.authType === 'github' && data.githubId) {
+        player.authType = 'github';
+        player.githubUsername = data.githubUsername || '';
+        player.userHash = generateUserHash('gh_' + data.githubId, '#');
+      } else {
+        player.authType = 'guest';
+        player.githubUsername = '';
+        const clientIp = (client as any).ref?.remoteAddress || client.sessionId;
+        player.userHash = generateUserHash('guest_' + clientIp, '~');
+      }
+      this.broadcast("player_auth_updated", {
+        id: client.sessionId,
+        authType: player.authType,
+        userHash: player.userHash,
+        githubUsername: player.githubUsername
+      });
+    });
   }
 
   // --- GOAP AI ループ (最優先: プレイヤー手助け) ---
@@ -363,9 +475,10 @@ export class VoxelGameRoom extends Room<GameWorldState> {
           targetZ: targetP.z + 1
         });
       } else {
-        // プレイヤーが暇な時はランダムパトロール
-        const wanderX = (Math.sin(now * 0.001) * 6);
-        const wanderZ = (Math.cos(now * 0.001) * 6);
+        // プレイヤーが暇な時は8秒ごとに新しい見回り地点をゆったり決定
+        const patrolStep = Math.floor(now / 8000);
+        const wanderX = Math.sin(patrolStep * 1.7) * 4.5;
+        const wanderZ = Math.cos(patrolStep * 1.7) * 4.5;
         actions.push({
           name: "WanderAroundVillage",
           cost: 5,
@@ -405,10 +518,11 @@ export class VoxelGameRoom extends Room<GameWorldState> {
       const dz = npc.targetZ - npc.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
 
-      if (dist > 0.2) {
-        const speed = 0.15; // 100msあたりの移動量
-        npc.x += (dx / dist) * speed;
-        npc.z += (dz / dist) * speed;
+      if (dist > 0.1) {
+        const speed = 0.08; // 100msあたりの移動量 (秒速0.8mでゆったり移動)
+        const step = Math.min(speed, dist);
+        npc.x += (dx / dist) * step;
+        npc.z += (dz / dist) * step;
       }
     });
   }
@@ -419,8 +533,72 @@ export class VoxelGameRoom extends Room<GameWorldState> {
 // ==========================================
 
 const port = Number(process.env.PORT || 2567);
+
+const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+  // CORS ヘッダー
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  const host = req.headers.host || `localhost:${port}`;
+  const url = new URL(req.url || '/', `http://${host}`);
+
+  // 1. デモ用認証エンドポイント (Client Secret なしでも即座にテスト可能)
+  if (url.pathname === '/api/auth/demo') {
+    const username = url.searchParams.get('username') || 'GuestUser';
+    const rawId = url.searchParams.get('id') || username;
+    const userHash = generateUserHash('gh_' + rawId, '#');
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      success: true,
+      authType: 'github',
+      githubUsername: username,
+      githubId: rawId,
+      userHash
+    }));
+    return;
+  }
+
+  // 2. 本番用 GitHub OAuth 認可リダイレクト (GITHUB_CLIENT_ID が設定されている場合)
+  if (url.pathname === '/auth/github') {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    if (clientId) {
+      const redirectUri = encodeURIComponent(`http://${host}/auth/github/callback`);
+      res.writeHead(302, {
+        Location: `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=read:user&redirect_uri=${redirectUri}`
+      });
+      res.end();
+      return;
+    }
+
+    // Client ID 未設定時の案内
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <html>
+        <body style="font-family: sans-serif; background: #0f172a; color: #fff; padding: 40px; text-align: center;">
+          <h2>🐱 GitHub OAuth 設定案内</h2>
+          <p style="color: #94a3b8;">環境変数 <code>GITHUB_CLIENT_ID</code> が未設定のため、デモ認証をご利用ください。</p>
+          <a href="/" style="color: #38bdf8;">ワールドに戻る</a>
+        </body>
+      </html>
+    `);
+    return;
+  }
+
+  // デフォルトステータス
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('🌲 Voxel Village Game Server is Running.');
+});
+
 const gameServer = new Server({
-  server: createServer()
+  server: httpServer
 });
 
 gameServer.define('voxel_room', VoxelGameRoom);

@@ -79,6 +79,99 @@
       color: #f8fafc;
     }
 
+    .top-left-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    /* プレイヤー一覧カード */
+    #player-list-card {
+      min-width: 220px;
+      max-width: 280px;
+      padding: 8px 12px;
+    }
+
+    .player-list-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 4px;
+    }
+
+    .player-list-items {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .player-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #f1f5f9;
+      padding: 3px 6px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .player-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+      flex-shrink: 0;
+    }
+
+    .player-dot.offline {
+      background: #94a3b8;
+      box-shadow: none;
+    }
+
+    .player-list-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1.5px solid rgba(56, 189, 248, 0.6);
+      flex-shrink: 0;
+      background: #1e293b;
+    }
+
+    .player-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+
+    .player-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(56, 189, 248, 0.2);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .player-badge.self {
+      background: rgba(16, 185, 129, 0.2);
+      color: #6ee7b7;
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+
     #network-badge {
       display: inline-flex;
       align-items: center;
@@ -104,10 +197,26 @@
       margin-top: 4px;
     }
 
+    /* 右上統合コントロールパネル (縦積み右揃え) */
+    .top-right-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    }
+
+    /* 上部右 コントロールボタン群 */
+    .top-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
     /* NPC ステータスカード */
     #npc-hud {
-      min-width: 260px;
-      max-width: 320px;
+      width: 290px;
+      box-sizing: border-box;
+      transition: opacity 0.25s ease, transform 0.25s ease;
     }
 
     .npc-header {
@@ -151,17 +260,16 @@
       font-style: italic;
     }
 
-    /* 編集モードトグルボタン (右上) */
-    .edit-toggle-btn {
+    .action-btn {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 10px 18px;
-      font-size: 14px;
+      gap: 6px;
+      padding: 9px 16px;
+      font-size: 13px;
       font-weight: 700;
       color: #fff;
       background: rgba(30, 41, 59, 0.85);
-      border: 1px solid rgba(56, 189, 248, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.2);
       border-radius: 30px;
       cursor: pointer;
       transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -169,11 +277,14 @@
       pointer-events: auto;
     }
 
-    .edit-toggle-btn:hover {
+    .action-btn:hover {
       background: rgba(56, 189, 248, 0.25);
       border-color: #38bdf8;
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(56, 189, 248, 0.4);
+    }
+
+    .edit-toggle-btn {
+      border-color: rgba(56, 189, 248, 0.4);
     }
 
     .edit-toggle-btn.active {
@@ -190,7 +301,7 @@
       right: 0;
       width: 320px;
       height: 100%;
-      background: rgba(15, 23, 42, 0.88);
+      background: rgba(15, 23, 42, 0.9);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border-left: 1px solid rgba(255, 255, 255, 0.15);
@@ -293,7 +404,6 @@
       box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
     }
 
-    /* 素材パレット グリッド */
     .palette-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -339,7 +449,6 @@
       font-weight: 600;
     }
 
-    /* スタンプ グリッド */
     .stamp-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -379,17 +488,35 @@
       font-size: 20px;
     }
 
-    /* 左下 操作ガイド */
+    /* 左下 操作ガイド (動的出し分け) */
     #controls-guide {
       align-self: flex-start;
       font-size: 12px;
       line-height: 1.6;
       color: #cbd5e1;
-      max-width: 270px;
+      min-width: 280px;
+      max-width: 320px;
+      transition: all 0.2s ease-in-out;
     }
 
     #controls-guide b {
       color: #f1f5f9;
+    }
+
+    .guide-title {
+      font-weight: bold;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .guide-title.play {
+      color: #38bdf8;
+    }
+
+    .guide-title.edit {
+      color: #facc15;
     }
 
     .key-badge {
@@ -402,13 +529,25 @@
       color: #38bdf8;
     }
 
-    /* 下部中央 ミニパレット (通常時もクイック選択可能) */
+    /* 下部中央 ミニパレット (編集モード時のみ表示) */
     .bottom-center-bar {
       align-self: center;
-      display: flex;
+      display: none;
       flex-direction: column;
       align-items: center;
       gap: 8px;
+      animation: paletteFadeUp 0.25s ease-out;
+    }
+
+    @keyframes paletteFadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     #quick-palette {
@@ -468,7 +607,362 @@
       color: #e2e8f0;
     }
 
-    /* 互換用要素 */
+    /* プロフィールバッジ (左上) */
+    .profile-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      min-width: 250px;
+    }
+    .profile-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(56, 189, 248, 0.5);
+      box-shadow: 0 10px 25px rgba(56, 189, 248, 0.2);
+    }
+    .profile-avatar-wrapper {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: linear-gradient(135deg, #1e293b, #334155);
+      border: 2px solid #38bdf8;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .profile-avatar-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .profile-avatar-placeholder {
+      font-size: 24px;
+    }
+    .profile-info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      flex: 1;
+    }
+    .profile-name-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .profile-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    /* 認証バッジ (ハッシュ表示) */
+    .auth-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      font-weight: 400;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      padding: 1px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.3px;
+    }
+    .auth-badge.github {
+      background: rgba(16, 185, 129, 0.2);
+      color: #6ee7b7;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+    .auth-badge.guest {
+      background: rgba(148, 163, 184, 0.15);
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+
+    /* 詳細ダイアログ (モーダル) */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: modalFadeIn 0.2s ease-out;
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .modal-card {
+      width: 90%;
+      max-width: 500px;
+      max-height: 85vh;
+      overflow-y: auto;
+      padding: 24px;
+      position: relative;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding-bottom: 12px;
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-close-btn {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px;
+      line-height: 1;
+      border-radius: 4px;
+      transition: color 0.15s ease;
+    }
+    .modal-close-btn:hover {
+      color: #f1f5f9;
+    }
+    .modal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .modal-avatar-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .modal-avatar-preview {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 3px solid #38bdf8;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .modal-avatar-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .modal-section {
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 8px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .modal-section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .modal-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: #cbd5e1;
+      padding: 3px 0;
+    }
+    .modal-val {
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+    .glass-input {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      color: #f8fafc;
+      padding: 7px 12px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s ease;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .glass-input:focus {
+      border-color: #38bdf8;
+    }
+
+    /* 画面下中央 チャット＆スタンプシステム */
+    #chat-panel {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 440px;
+      max-width: 90vw;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 100;
+      pointer-events: none;
+    }
+    body.drawer-open #chat-panel {
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    .chat-log-box {
+      max-height: 120px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 12px;
+      pointer-events: auto;
+      scrollbar-width: thin;
+    }
+    .chat-msg-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-size: 13px;
+      line-height: 1.4;
+      animation: chatFadeIn 0.2s ease-out;
+    }
+    @keyframes chatFadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .chat-avatar-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      object-fit: cover;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      background: #1e293b;
+      align-self: center;
+    }
+    .chat-sender {
+      font-weight: 700;
+      color: #38bdf8;
+      flex-shrink: 0;
+    }
+    .chat-sender.self {
+      color: #6ee7b7;
+    }
+    .chat-content {
+      color: #f1f5f9;
+      word-break: break-word;
+    }
+    .chat-content.stamp {
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .chat-bar {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      padding: 6px 8px;
+      pointer-events: auto;
+      position: relative;
+    }
+    .chat-input {
+      flex: 1;
+      padding: 8px 12px;
+      font-size: 13px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      color: #fff;
+      outline: none;
+    }
+    .chat-input:focus {
+      border-color: #38bdf8;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+    }
+    .chat-btn {
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+    .chat-btn:hover {
+      background: rgba(56, 189, 248, 0.3);
+      border-color: #38bdf8;
+    }
+    .chat-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* スタンプポップアップ */
+    .stamp-popup {
+      position: absolute;
+      bottom: 54px;
+      left: 0;
+      right: 0;
+      padding: 10px 12px;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: auto;
+      animation: stampSlideUp 0.15s ease-out;
+    }
+    @keyframes stampSlideUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .stamp-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .stamp-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      color: #fff;
+      padding: 6px 4px;
+      font-size: 12px;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.15s ease, transform 0.1s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stamp-btn:hover {
+      background: rgba(56, 189, 248, 0.25);
+      border-color: #38bdf8;
+      transform: scale(1.05);
+    }
+
     #ui-overlay, #block-palette {
       display: none;
     }
@@ -482,51 +976,103 @@
   <div id="hud-layer">
     <!-- Top Area -->
     <div class="top-bar">
-      <!-- App Status & Title -->
-      <div class="glass-card title-badge">
-        <div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <h1>🌲 AI VRM Village</h1>
-            <div id="network-badge">🟡 OFFLINE</div>
+      <!-- Left Top: App Status & Player List -->
+      <div class="top-left-panel">
+        <!-- 👤 プレイヤープロフィールカード (クリックでダイアログ開く) -->
+        <div id="player-profile-badge" class="glass-card profile-card" title="クリックして詳細プロフィールを表示">
+          <div class="profile-avatar-wrapper">
+            <img id="profile-avatar-img" class="profile-avatar-img" src="" alt="Avatar" style="display: none;" />
+            <div id="profile-avatar-placeholder" class="profile-avatar-placeholder">👤</div>
           </div>
-          <div id="status">初期化中...</div>
+          <div class="profile-info">
+            <div class="profile-name-row">
+              <span id="profile-display-name" class="profile-name">あなた</span>
+              <span id="profile-user-badge" class="auth-badge guest">👤~guest</span>
+              <div id="network-badge">🟡 OFFLINE</div>
+            </div>
+            <div id="status">初期化中...</div>
+          </div>
+        </div>
+
+        <!-- 👥 ワールド内プレイヤー一覧カード -->
+        <div id="player-list-card" class="glass-card">
+          <div class="player-list-header">
+            <span>👥 プレイヤー (<span id="player-count">1</span>)</span>
+          </div>
+          <div id="player-list-container" class="player-list-items">
+            <div class="player-item">
+              <span class="player-dot"></span>
+              <span class="player-name">あなた (ホスト)</span>
+              <span class="player-badge self">YOU</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Center-Right: NPC & Toggle Buttons -->
-      <div style="display: flex; gap: 12px; align-items: flex-start;">
-        <!-- GOAP NPC Status Card -->
+      <!-- Right Top: Actions Bar on Top + NPC Card Below (No more overlapping) -->
+      <div class="top-right-panel">
+        <!-- アクションボタン群 (右端揃え) -->
+        <div class="top-actions">
+          <!-- 自キャラへ視点復帰ボタン -->
+          <button id="btn-reset-camera" class="glass-card action-btn" title="カメラ視点をアバターに戻す">
+            <span>🎯</span>
+            <span>自キャラを探す</span>
+          </button>
+
+          <!-- お手伝いピコへ視点フォーカスボタン -->
+          <button id="btn-focus-pico" class="glass-card action-btn" title="カメラ視点をお手伝いピコに合わせる">
+            <span>🤖</span>
+            <span>ピコを探す</span>
+          </button>
+
+          <!-- 編集モードトグルボタン -->
+          <button id="btn-toggle-edit" class="glass-card action-btn edit-toggle-btn">
+            <span id="edit-btn-icon">🛠️</span>
+            <span id="edit-btn-text">ワールド編集 (E)</span>
+          </button>
+        </div>
+
+        <!-- GOAP NPC Status Card (ボタン群の直下にスッキリ配置) -->
         <div id="npc-hud" class="glass-card">
           <div class="npc-header">
             <div class="npc-avatar-icon">🤖</div>
-            <div>
+            <div style="flex:1;">
               <div class="npc-title" id="npc-name">お手伝いピコ</div>
               <div class="npc-meta" id="npc-goal">目標: プレイヤーの探索</div>
             </div>
+            <button id="btn-toggle-pico-bubble" title="頭上吹き出しのON/OFF" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);border-radius:6px;padding:2px 8px;font-size:11px;color:#e2e8f0;cursor:pointer;white-space:nowrap;">💬 ON</button>
           </div>
           <div class="npc-meta" id="npc-task">タスク: 見回り待機中</div>
           <div class="npc-bubble" id="npc-message">「何か手伝えることはあるかな？」</div>
         </div>
-
-        <!-- 編集モードトグルボタン -->
-        <button id="btn-toggle-edit" class="glass-card edit-toggle-btn">
-          <span id="edit-btn-icon">🛠️</span>
-          <span id="edit-btn-text">ワールド編集 (E)</span>
-        </button>
       </div>
     </div>
 
     <!-- Bottom Area -->
     <div style="display: flex; justify-content: space-between; align-items: flex-end; width: 100%;">
-      <!-- Controls Guide (Left Bottom) -->
+      <!-- Controls Guide (Left Bottom: モード別出し分け) -->
       <div id="controls-guide" class="glass-card">
-        <div style="font-weight: bold; margin-bottom: 4px; color: #38bdf8;">🎮 操作ガイド</div>
-        <div><span class="key-badge">W</span><span class="key-badge">A</span><span class="key-badge">S</span><span class="key-badge">D</span> 直感移動（画面連動）</div>
-        <div><b>左クリック</b>: ボックス配置</div>
-        <div><b>右クリック</b>: ボックス削除</div>
-        <div><b>ホイール</b>: 視点ズーム拡縮</div>
-        <div><span class="key-badge">E</span> / ボタン: 編集モード切替</div>
-        <div><b>VRM</b>: 画面D&Dでアバター変更</div>
+        <!-- 通常モード用ガイド -->
+        <div id="guide-play">
+          <div class="guide-title play">🎮 散策モード</div>
+          <div><span class="key-badge">W</span><span class="key-badge">A</span><span class="key-badge">S</span><span class="key-badge">D</span> 直感移動（画面連動）</div>
+          <div><b>左ドラッグ</b>: カメラ位置移動（パン）</div>
+          <div><b>右ドラッグ</b>: カメラ視点回転（左右）</div>
+          <div><b>ホイール</b>: 視点ズーム拡縮</div>
+          <div><span class="key-badge">E</span> / 右上ボタン: <b>ワールド編集起動</b></div>
+          <div><b>VRM</b>: 画面D&Dでアバター変更</div>
+        </div>
+
+        <!-- 編集モード用ガイド (初期非表示) -->
+        <div id="guide-edit" style="display: none;">
+          <div class="guide-title edit">🛠️ ワールド編集モード</div>
+          <div><b>左クリック</b>: ボックス追加（配置）</div>
+          <div><b>右クリック</b>: ボックス削除（破壊）</div>
+          <div><b>左ドラッグ</b>: カメラ位置移動（パン）</div>
+          <div><b>右ドラッグ</b>: カメラ視点回転（左右）</div>
+          <div><span class="key-badge">1</span>〜<span class="key-badge">6</span>: ブロック素材選択</div>
+          <div><span class="key-badge">E</span> / 右上ボタン: <b>編集終了（散策へ）</b></div>
+        </div>
       </div>
 
       <!-- Quick Palette (Bottom Center) -->
@@ -566,7 +1112,140 @@
       </div>
 
       <!-- Spacer for balance -->
-      <div style="width: 270px;"></div>
+      <div style="width: 280px;"></div>
+    </div>
+  </div>
+
+  <!-- 💬 画面下中央 チャット＆スタンプパネル -->
+  <div id="chat-panel">
+    <!-- チャットログ -->
+    <div id="chat-log-box" class="glass-card chat-log-box">
+      <div class="chat-msg-row">
+        <span class="chat-sender">🤖 お手伝いピコ:</span>
+        <span class="chat-content">村へようこそ！チャットやスタンプで挨拶してみてね！</span>
+      </div>
+    </div>
+
+    <!-- スタンプパレットポップアップ (初期非表示) -->
+    <div id="stamp-popup" class="glass-card stamp-popup">
+      <div style="font-size: 11px; font-weight: 700; color: #94a3b8; margin-bottom: 2px;">クイックスタンプ (ワンタップ送信)</div>
+      <div class="stamp-grid">
+        <button class="stamp-btn" data-stamp="👋 こんにちは！">👋 こんにち</button>
+        <button class="stamp-btn" data-stamp="✨ よろしく！">✨ よろしく</button>
+        <button class="stamp-btn" data-stamp="🙇 ありがとう！">🙇 感謝！</button>
+        <button class="stamp-btn" data-stamp="❤️ いいね！">❤️ いいね</button>
+        <button class="stamp-btn" data-stamp="⛏️ 採掘中！">⛏️ 採掘中</button>
+        <button class="stamp-btn" data-stamp="🔨 建築なう">🔨 建築なう</button>
+        <button class="stamp-btn" data-stamp="🎉 わーい！">🎉 わーい！</button>
+        <button class="stamp-btn" data-stamp="🤖 ピコー！">🤖 ピコー！</button>
+      </div>
+    </div>
+
+    <!-- 入力バー -->
+    <div class="glass-card chat-bar">
+      <button id="btn-stamp-toggle" class="chat-btn" title="スタンプ一覧">😊</button>
+      <input type="text" id="input-chat-text" class="chat-input" placeholder="メッセージを入力... (Enterで送信)" maxlength="60" autocomplete="off" />
+      <button id="btn-chat-send" class="chat-btn" title="送信">💬 送信</button>
+    </div>
+  </div>
+
+  <!-- 👤 プレイヤー詳細ダイアログ (モーダル) -->
+  <div id="profile-modal-backdrop" class="modal-backdrop" style="display: none;">
+    <div class="glass-card modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>👤 プレイヤープロフィール</span>
+        </div>
+        <button id="btn-close-modal" class="modal-close-btn" title="閉じる (Esc)">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- アバター写真 ＆ 名前変更セクション -->
+        <div class="modal-avatar-section">
+          <div class="modal-avatar-preview">
+            <img id="modal-avatar-img" src="" alt="Avatar Large" style="display: none;" />
+            <div id="modal-avatar-placeholder" style="font-size: 40px;">👤</div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+            <label style="font-size: 12px; color: #94a3b8; font-weight: 700;">プレイヤー名</label>
+            <div style="display: flex; gap: 6px;">
+              <input type="text" id="input-player-name" class="glass-input" value="あなた" maxlength="16" placeholder="名前を入力" />
+              <button id="btn-save-name" class="chat-btn" style="padding: 6px 14px; font-size: 12px;">変更</button>
+            </div>
+            <div style="font-size: 11px; color: #64748b;">※VRMファイルを画面にD&Dすると即座にアバター変更されます</div>
+          </div>
+        </div>
+
+        <!-- 🐱 なりすまし防止・認証セクション -->
+        <div class="modal-section">
+          <div class="modal-section-title">🛡️ なりすまし防止 ＆ 本人認証</div>
+          
+          <!-- 未認証状態UI -->
+          <div id="auth-unverified-box" style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="font-size: 12px; color: #cbd5e1; line-height: 1.4;">
+              GitHub認証を行うと、固有の <b>🐱#ハッシュ値</b> が付与され、他者による名前のなりすましを防げます。
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button id="btn-auth-github" class="chat-btn" style="background: rgba(16, 185, 129, 0.25); border-color: #10b981; color: #6ee7b7; font-size: 12px;">
+                🐱 GitHubで認証する
+              </button>
+              <div style="display: flex; gap: 4px; align-items: center;">
+                <input type="text" id="input-demo-username" class="glass-input" style="width: 120px; padding: 5px 8px; font-size: 12px;" placeholder="ユーザー名" />
+                <button id="btn-auth-demo" class="chat-btn" style="padding: 5px 10px; font-size: 11px;">🧪 デモ認証</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 認証済み状態UI (初期非表示) -->
+          <div id="auth-verified-box" style="display: none; flex-direction: column; gap: 6px;">
+            <div class="modal-row">
+              <span>認証アカウント:</span>
+              <span id="modal-auth-username" class="modal-val" style="color: #6ee7b7;">@username</span>
+            </div>
+            <div class="modal-row">
+              <span>本人証明ハッシュ:</span>
+              <span id="modal-auth-hash" class="auth-badge github">🐱#a8f3b2</span>
+            </div>
+            <button id="btn-auth-logout" class="chat-btn" style="align-self: flex-start; margin-top: 6px; font-size: 11px; padding: 4px 10px; background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.4); color: #fca5a5;">
+              認証解除 (ゲストに戻る)
+            </button>
+          </div>
+        </div>
+
+        <!-- VRMモデル情報 -->
+        <div class="modal-section">
+          <div class="modal-section-title">📦 VRMモデル情報</div>
+          <div class="modal-row">
+            <span>モデル名:</span>
+            <span id="modal-vrm-title" class="modal-val">読み込み中...</span>
+          </div>
+          <div class="modal-row">
+            <span>作者:</span>
+            <span id="modal-vrm-author" class="modal-val">不明</span>
+          </div>
+        </div>
+
+        <!-- ワールド現在状況 -->
+        <div class="modal-section">
+          <div class="modal-section-title">🌍 ワールド状況</div>
+          <div class="modal-row">
+            <span>現在座標:</span>
+            <span id="modal-player-coords" class="modal-val">X: 0.0, Y: 1.5, Z: 0.0</span>
+          </div>
+          <div class="modal-row">
+            <span>接続ステータス:</span>
+            <span id="modal-network-status" class="modal-val">🟡 OFFLINE</span>
+          </div>
+        </div>
+
+        <!-- マルチプレイヤテスト用リンク -->
+        <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+          <button id="btn-open-second-tab" class="chat-btn" style="font-size: 12px; gap: 6px;">
+            <span>🔗</span>
+            <span>別タブで2人目として参加 (マルチテスト)</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -587,7 +1266,7 @@
       </div>
     </div>
 
-    <!-- ブラシサイズ (配置/削除ツール時) -->
+    <!-- ブラシサイズ -->
     <div class="drawer-section" id="section-brush-size">
       <label>ブラシサイズ</label>
       <div class="btn-group">
@@ -628,7 +1307,7 @@
       </div>
     </div>
 
-    <!-- 建築スタンプ (スタンプツール選択時に表示) -->
+    <!-- 建築スタンプ -->
     <div class="drawer-section" id="section-stamp" style="display: none;">
       <label>建築スタンプ (ワンクリック生成)</label>
       <div class="stamp-grid">
@@ -652,7 +1331,7 @@
     </div>
 
     <div style="font-size: 11px; color: #64748b; line-height: 1.5; margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
-      💡 <b>ヒント</b>: 編集モード中は画面を左クリックで配置、右クリックで削除できます。ホイールで視点をズームできます。
+      💡 <b>ヒント</b>: 左クリックで配置、右クリックで削除。左ドラッグで移動、右ドラッグで視点を回転できます。
     </div>
   </aside>
 

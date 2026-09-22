@@ -6,6 +6,7 @@
   "scripts": {
     "dev:client": "vite",
     "dev:server": "tsx watch server.ts",
+    "server": "tsx server.ts",
     "build": "tsc && vite build",
     "start": "tsx server.ts"
   },
