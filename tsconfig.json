@@ -5,6 +5,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
+    "experimentalDecorators": true,
 
     /* 以下の2行をNode16（またはNodeNext）に更新します */
     "module": "Node16",

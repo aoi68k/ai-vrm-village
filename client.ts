@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
 import { Client, Room } from 'colyseus.js';
 
 // 角度の最短方向 Lerp 補間ヘルパー
@@ -482,11 +482,12 @@ export class VRMAvatarController {
             return;
           }
 
-          VRMUtils.removeUnnecessaryVertices(gltf.scene);
-          VRMUtils.removeUnnecessaryJoints(gltf.scene);
-          VRMUtils.rotateVRM0(vrm); // VRM 0.x / 1.x の向きを標準化
+          // VRMUtilsは提供されなくなった
+          // VRMUtils.removeUnnecessaryVertices(gltf.scene);
+          // VRMUtils.removeUnnecessaryJoints(gltf.scene);
+          // VRMUtils.rotateVRM0(vrm); // VRM 0.x / 1.x の向きを標準化
 
-          vrm.scene.traverse((obj) => {
+          vrm.scene.traverse((obj: any) => {
             if ((obj as THREE.Mesh).isMesh) {
               obj.castShadow = true;
               obj.receiveShadow = true;
@@ -2574,7 +2575,7 @@ export class VoxelVRMApp {
     let clothingColor: string | null = null;
 
     // 1. VRMのメッシュ・マテリアルからテクスチャピクセルをサンプリング
-    vrm.scene.traverse((obj) => {
+    vrm.scene.traverse((obj: any) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
