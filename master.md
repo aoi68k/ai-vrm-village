@@ -1,138 +1,113 @@
-# ボクセル箱庭マルチプレイヤーゲーム マスター設計書 (master.md)
+# ボクセル箱庭 ＆ VRM自律型NPCマルチプレイヤーゲーム マスター設計書 (master-v2.md)
 
-> 本ドキュメントは、クォータービュー（アイソメトリック）形式のボクセル箱庭マルチプレイヤーゲームおよび自律型NPCシステムの要素分解と全体アーキテクチャを定義したものです。他チャット（実装用LLMプロンプト）へのコンテキスト引き渡し用として使用します。
+> 本ドキュメントは、VRMアバター表示、クォータービュー（アイソメトリック）ボクセル箱庭環境、Colyseusリアルタイム同期、およびGOAP手助けAIシステムを包括した最新の全体アーキテクチャ設計書です。他開発チャットや開発プロンプトへの文脈引き渡し用として使用します。  
+> GitHub リポジトリ: https://github.com/aoi68k/ai-vrm-village
 
 ---
 
 ## 1. プロジェクト概要 & コアコンセプト
 
-* **ゲームジャンル**: クォータービュー・ボクセル箱庭クラフト＆協調シミュレーション [1, 3]
-* **視点 (Camera)**: 2.5D アイソメトリック（クォータービュー固定・ドラッグ平行移動 / ズーム対応） [3]
-* **世界観・マップ**: ボクセル（Voxel）グリッドで構成された箱庭世界。木や岩などの各種環境オブジェクトが存在 [1]
+* **ゲームタイトル / リポジトリ**: `ai-vrm-village` (ボクセル箱庭 × VRMアバター × GOAP自律型NPC)
+* **ゲームジャンル**: 2.5D クォータービュー・ボクセル箱庭クラフト＆協調シミュレーション [1, 3]
+* **視点 (Camera)**: 2.5D アイソメトリック（`OrthographicCamera`、ターゲット追従、Lerp補正） [3]
+* **アバター表現**: ユーザー独自の `.vrm` ファイル読み込み (`@pixiv/three-vrm`)、WASDキー等角移動、ドラッグ＆ドロップ対応。
 * **ゲームプレイ方針**:
-  * **戦闘なし**: 平和的な素材収集・建設・開拓に特化。
-  * **環境即時変化**: アニメーション補間を最小限にし、木を斧で叩いて切ると即座に消失・アイテム化するなど、高速でレスポンシブなインタラクションを提供 [1, 5]。
+  * **完全非戦闘**: 平和的な素材収集（木こり・採掘）と建設・レイアウト設計に特化。
+  * **即時環境変化**: アニメーション補間を最小限にし、左クリックで即時破壊、右クリックで即時配置。
+  * **リアルタイムモーション機能**: 手続き型歩行（関節連動・体重移動・跳ね補正）、作業モーション（ツルハシ振り下ろし・建設ポーズ）、自動まばたき。
 * **NPCの役割と動作モデル**:
-  * あらかじめ定義された行動パターンと **GOAP (Goal-Oriented Action Planning)** に基づく高速・軽量な自律動作 [4]。
-  * **優先度制御**: プレイヤーが近くに居る場合は最優先でその手助け（建設支援・資材運搬）を行う。
-  * **API非依存**: 重いLLM APIの常用を避け、ローカルルール/GOAPで完結。必要に応じて非同期LLMを接続可能なハイブリッド構造 [4]。
+  * **GOAP (Goal-Oriented Action Planning)** による軽量・低遅延な自律意思決定 [4]。
+  * **優先度制御**: プレイヤーの作業（採掘/建設）をセンシングし、近くにアクティブなプレイヤーがいる場合は `Priority 100` で手助け行動を起こす。
+  * **API非依存**: 重いLLM APIを使わずローカルルール/GOAPで完結。
 
 ---
 
-## 2. 技術スタック概要
+## 2. 技術スタック & リポジトリ構成
 
 | 領域 | 採用技術 | 役割 | 関連ソース |
 | :--- | :--- | :--- | :--- |
-| **Client Rendering** | Three.js + TypeScript | 2.5D アイソメトリック描画、ボクセル・インスタンス描画 | [3, 5] |
-| **Client Architecture** | Entity Component System (ECS) | ロジックと描画の分離、オブジェクトプール管理 | [3] |
-| **Server Engine** | Node.js + Colyseus | Authoritative リアルタイム同期サーバー、Schema状態管理 | [2] |
-| **AI Autonomous Engine** | TS/Node.js GOAP Engine | 低遅延アクション計画、タスク優先度キュー | [4] |
-| **Data Optimization** | Bitwise Voxel Data & InstancedMesh | 大量ボクセル/樹木の描画・メモリ最適化 | [1, 5] |
+| **Client Rendering** | Three.js + `@pixiv/three-vrm` + Vite | 2.5D 描画、ボクセルインスタンス描画、VRMアバター制御・物理演算 | [3, 5] |
+| **Client Network** | `colyseus.js` + TypeScript | WebSocket同期 & オフライン自動フォールバック | [2] |
+| **Server Engine** | Node.js + Colyseus | Authoritative リアルタイム状態同期（10Hz Loop） | [2] |
+| **AI Engine** | TS/Node.js GOAP Engine | プレイヤー作業センシング、優先度選定、行動決定 | [4] |
+| **CI/CD / DevOps** | GitHub Actions (Node 22) + Pages | 自動型チェック (`tsc`) & Vite ビルド、GitHub Pages 自動公開 | - |
+| **Dev Environment** | GitHub Codespaces / VS Code | `devcontainer.json`, `setup.bat` による一括環境構築 | - |
 
 ---
 
 ## 3. システム要素分解 (System Decomposition)
 
-### 【モジュール A】クライアント & レンダリング層 (Client / Three.js + ECS)
-
+### 【モジュール A】クライアント層 (`client.ts`)
 1. **IsometricCameraSystem [3]**
-   * 直交投影（`OrthographicCamera`）を用いたクォータービュー画角の維持。
-   * プレイヤー追従・スムーズスクロール。
-2. **VoxelRenderSystem [1]**
-   * グリッド座標に基づくボクセルブロックの描画・更新。
-   * インスタンスドメッシュ（`InstancedMesh`）による一括描画と高速レイキャスト検出 [3, 5]。
-3. **EnvironmentInteractionSystem [1, 5]**
-   * 木の伐採やブロック破壊/設置時の即時描画更新（アニメーション省略型）。
-   * オブジェクトプール（`ObjectPool`）によるパーティクル/ドロップアイテムの管理 [3]。
-4. **ECS Core (Entity Component System) [3]**
-   * Entity: プレイヤー、NPC、環境オブジェクト（木・岩・建設物）。
-   * Components: `PositionComponent`, `RenderComponent`, `VoxelDataComponent`, `AgentComponent`.
+   * 直交投影 (`OrthographicCamera`)、アイソメトリック画角 (45°/35.264°)、ターゲット位置への平滑追従 (Lerp)。
+2. **VRMAvatarController & Motion Engine**
+   * `GLTFLoader` + `VRMLoaderPlugin` による `.vrm` のロード・物理骨格最適化 (`VRMUtils`)。
+   * WASD視点適合移動、段差接地処理、ドラッグ＆ドロップアバター変更。
+   * 手続き型モーション: 関節連動歩行、採掘（ツールスイング）、建設（配置構え）、自動まばたき (`expressionManager`)。
+3. **DynamicVoxelWorld & Raycaster [1, 5]**
+   * `InstancedMesh` による起伏地形・樹木の高速描画とレイキャスト位置検出。
+   * 左クリック採掘（ブロック消失＋パーティクル）、右クリック設置、ホットキー（1〜5）ブロック切替。
+4. **NetworkController (Client Side) [2]**
+   * Colyseus 接続管理、10Hz 位置同期、採掘/建設アクション送信、同期NPCの描画・会話オーバーレイ。
 
-### 【モジュール B】マルチプレイヤー & サーバー状態管理層 (Server / Colyseus)
+### 【モジュール B】サーバー＆マルチプレイヤー層 (`server.ts`)
+1. **VoxelGameRoom (Colyseus Room) [2]**
+   * Authoritative サーバーとして全状態（ボクセルマップ、プレイヤー位置・アクティビティ、NPCステート）を一括管理。
+2. **Colyseus Schema [2]**
+   * `VoxelBlockState`: ID、座標、ブロック種類。
+   * `PlayerState`: 座標、回転、作業種別 (`isMining`/`isBuilding`)、最終アクティブタイム。
+   * `NPCState`: 座標、現在のGoal (`currentGoal`)、Task (`currentTask`)、会話バブル (`statusMessage`)。
 
-1. **GameRoom (Colyseus Room) [2]**
-   * Authoritative サーバーとして全状態（プレイヤー位置、Voxelデータ、NPC状態）を一元管理。
-   * 1秒間に20〜30回の状態同期ループ。
-2. **WorldState Schema [2]**
-   * `voxels`: マップ上の変更されたボクセルデータマップ（`MapSchema<VoxelState>`）。
-   * `players`: 接続プレイヤーの座標・所持資材（`MapSchema<PlayerState>`）。
-   * `npcs`: 全NPCの座標・現在の目標・行動ステート（`MapSchema<NPCState>`）。
-3. **WorldMutationHandler [1, 2]**
-   * プレイヤー/NPCからの「採掘」「設置」アクションの検証と状態適用。
-   * インベントリ管理と資材ドロップの同期。
+### 【モジュール C】GOAP自律AI層 (Server-side AI)
+1. **Perception Module (センシング) [4]**
+   * 周囲のプレイヤーのアクティブ作業（10秒以内の採掘/建設）をチェック。
+2. **PrioritizedGoalSelector [4]**
+   * `Priority 100`: `HelpPlayerActive`（近傍プレイヤーの作業を手助けに向かう）
+   * `Priority 20`: `PatrolAndMaintainVillage`（平和時の村パトロール）
+3. **GOAPPlanner & Execution Loop [4]**
+   * 10Hz のサーバー tick で Goal -> Action -> Move/Talk ステートをリアルタイム更新。
 
-### 【モジュール C】自律型NPC & GOAP行動計画層 (AI / GOAP Engine)
-
-1. **PrioritizedGoalSelector (目標決定エンジン) [4]**
-   * **Priority Level 1 (最高)**: プレイヤー補助 (Player Assist)
-     * 条件: 近接範囲（例: 10グリッド以内）に作業中/移動中のプレイヤーが存在する。
-     * 目標: プレイヤーの狙う建設支援、または指定位置への資材運搬。
-   * **Priority Level 2**: NPC間協調・会話 (Social Co-op)
-     * 条件: 周囲に他NPCが存在する。
-     * 目標: あらかじめ定義されたトークンに基づく会話・共同建設。
-   * **Priority Level 3**: 自律維持・探索 (Idle / Harvest / Build)
-     * 条件: 優先イベントなし。
-     * 目標: 街の資材収集（木こり・採掘）、指定エリアの建設。
-2. **GOAPPlanner (軽量計画実行機) [4]**
-   * WorldState（現在の世界状態）と Goal（達成目標）から Action（行動系列）をA*探索で自動構築。
-   * 行動パターン定義: `CutTree`, `GatherWood`, `TransportMaterial`, `BuildStructure`, `AssistPlayer`.
-3. **External AI Hybrid Slot (将来拡張用) [4]**
-   * 非同期で外部LLM等の意思決定を取得するためのインターフェース（通常時は完全スキップし、固定ルール/GOAPのみで即座に応答）。
+### 【モジュール D】DevOps & CI/CD層
+1. **GitHub Actions (`.github/workflows/deploy.yml`)**
+   * Node 22 環境で `npx tsc --noEmit` 型チェック ➔ Vite ビルド ➔ GitHub Pages 自動デプロイ。
+2. **Codespaces / DevContainer (`.devcontainer/devcontainer.json`)**
+   * クラウド環境での自動セットアップ、ポート（5173 / 2567）のフォワーディング。
 
 ---
 
-## 4. データ構造 & スキーマ定義
+## 4. プロジェクトディレクトリ構成
 
-### A. Voxel & Map State Schema (Colyseus Schema TypeScript)
-```typescript
-import { Schema, type, MapSchema } from "@colyseus/schema";
-
-export class VoxelState extends Schema {
-  @type("int32") x: number = 0;
-  @type("int32") y: number = 0;
-  @type("int32") z: number = 0;
-  @type("uint8") typeId: number = 0; // 0: Air, 1: Dirt, 2: Wood, 3: Stone, etc.
-}
-
-export class NPCState extends Schema {
-  @type("string") id: string = "";
-  @type("number") x: number = 0;
-  @type("number") y: number = 0;
-  @type("number") z: number = 0;
-  @type("string") currentAction: string = "IDLE";
-  @type("string") targetPlayerId: string = ""; // 補助対象のプレイヤーID
-}
-```
-
-### B. GOAP Action & WorldState (TypeScript)
-```typescript
-export interface GOAPWorldState {
-  [key: string]: boolean | number | string;
-}
-
-export interface GOAPAction {
-  name: string;
-  cost: number;
-  preconditions: GOAPWorldState;
-  effects: GOAPWorldState;
-  execute: (agentId: string, world: any) => Promise<boolean>;
-}
+```text
+ai-vrm-village/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml          # Node 22 対応 CI/CD & GitHub Pages デプロイ
+├── .devcontainer/
+│   └── devcontainer.json       # GitHub Codespaces 設定
+├── .gitignore                  # 除外設定
+├── package.json                # 依存関係定義 (Three.js, @pixiv/three-vrm, Colyseus, Vite)
+├── tsconfig.json               # TypeScript設定
+├── setup.bat                   # Windows環境一括ビルド・起動バッチ
+├── index.html                  # UI & キャンバスエントリーポイント
+├── client.ts                   # クライアントメイン (VRM, Three.js, Raycast, Network)
+├── server.ts                   # Authoritative サーバー (Colyseus, GOAP AI Engine)
+├── master.md                   # 全体設計ドキュメント
+└── game-architecture-mockup.ts # 参考用全体モックアップコード
 ```
 
 ---
 
-## 5. 他チャットへ渡すための実装プロンプト文脈 (Prompt Template)
-
-以下をコピーして別の開発チャットに貼り付けることで、特定モジュールの詳細実装を開始できます。
+## 5. 他チャット・他LLMへの開発引き渡し用プロンプト (Prompt Template)
 
 ```text
 【開発コンテキスト】
-あなたはクォータービュー・ボクセル箱庭ゲームの開発者です。
-参照ドキュメント master.md に基づき、以下のモジュールを実装してください。
+あなたは「ai-vrm-village」(クォータービュー・ボクセル箱庭 × VRMアバター × GOAP手助けAI) の開発者です。
+リポジトリ: https://github.com/aoi68k/ai-vrm-village
+参照ドキュメント master.md に基づき、以下の拡張・修正を実装してください。
 
-■ 今回の実装対象: [例: モジュール C: GOAP行動計画エンジン]
-■ 要求仕様:
-- 戦闘なし、建設・収集中心。
-- プレイヤーが近くに居る場合はプレイヤー手助け目標を最優先に選定する GOAPPlanner を構築してください。
-- 外部APIに依存せず、完全ローカルの高速ルールで動作するクラスとして記述してください。
+■ 今回の実装対象: [例: client.ts の採掘パーティクルおよび効果音 (SE) 再生処理の強化]
+■ 必須条件:
+- Three.js + @pixiv/three-vrm の構成を維持すること。
+- Colyseus の同期メッセージ (destroy_voxel) と連動させること。
+- TypeScript の厳密な型チェック (npx tsc --noEmit) が通過するコードを記述すること。
 ```

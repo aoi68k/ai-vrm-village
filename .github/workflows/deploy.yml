@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ main, master ]
 
-# GitHub Pages へのデプロイ権限の設定
 permissions:
   contents: read
   pages: write
@@ -17,7 +16,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 1. ビルド & 型チェック
   build-and-check:
     runs-on: ubuntu-latest
     steps:
@@ -27,11 +25,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm install
 
       - name: Type check TypeScript
         run: npx tsc --noEmit
@@ -45,7 +42,6 @@ jobs:
         with:
           path: './dist'
 
-  # 2. GitHub Pages への自動デプロイ (main/master ブランチのみ)
   deploy:
     needs: build-and-check
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
