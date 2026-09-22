@@ -7,7 +7,7 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server.ts",
     "server": "tsx server.ts",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b -p tsconfig.json && vite build",
     "start": "tsx server.ts"
   },
   "dependencies": {
