@@ -1609,9 +1609,20 @@ export class DynamicVoxelWorld {
 export function getAutoServerUrl(): string {
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.has('server')) {
-    return urlParams.get('server')!;
+    const s = urlParams.get('server')!.trim();
+    if (s) {
+      localStorage.setItem('vrm_village_server_url', s);
+      return s;
+    }
+  }
+  const saved = localStorage.getItem('vrm_village_server_url');
+  if (saved) {
+    return saved.trim();
   }
   const host = window.location.hostname || 'localhost';
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return `ws://${host}:2567`;
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${host}:2567`;
 }
@@ -2837,6 +2848,30 @@ export class VoxelVRMApp {
         this.updateStatus('❌ サンプルVRMの読み込みに失敗しました');
       }
     });
+
+    // 🌐 サーバー接続設定ハンドラー
+    const serverInput = document.getElementById('input-server-url') as HTMLInputElement | null;
+    const saveServerBtn = document.getElementById('btn-save-server-url');
+    const resetLocalBtn = document.getElementById('btn-reset-server-local');
+    const clearServerBtn = document.getElementById('btn-clear-server-url');
+
+    saveServerBtn?.addEventListener('click', () => {
+      const url = serverInput?.value.trim();
+      if (url) {
+        localStorage.setItem('vrm_village_server_url', url);
+        window.location.href = window.location.pathname; // パラメータなしでリロード
+      }
+    });
+
+    resetLocalBtn?.addEventListener('click', () => {
+      localStorage.setItem('vrm_village_server_url', 'ws://localhost:2567');
+      window.location.href = window.location.pathname;
+    });
+
+    clearServerBtn?.addEventListener('click', () => {
+      localStorage.removeItem('vrm_village_server_url');
+      window.location.href = window.location.pathname;
+    });
   }
 
   // プレイヤー簡易詳細小窓のイベント登録
@@ -2914,6 +2949,10 @@ export class VoxelVRMApp {
       const coordsEl = document.getElementById('modal-player-coords');
       if (coordsEl) {
         coordsEl.innerText = `X: ${this.avatar.position.x.toFixed(1)}, Y: ${this.avatar.position.y.toFixed(1)}, Z: ${this.avatar.position.z.toFixed(1)}`;
+      }
+      const serverInput = document.getElementById('input-server-url') as HTMLInputElement | null;
+      if (serverInput) {
+        serverInput.value = getAutoServerUrl();
       }
     }
   }

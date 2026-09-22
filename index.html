@@ -1496,6 +1496,22 @@
           </div>
         </div>
 
+        <!-- 🌐 サーバー接続設定 -->
+        <div class="modal-section">
+          <div class="modal-section-title">🌐 マルチプレイ・サーバー接続設定</div>
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; line-height: 1.4;">
+            GitHub Pages等の外部からマルチプレイを行うには、稼働中のColyseusサーバーURL（ngrokやRender等）を指定します。
+          </div>
+          <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+            <input type="text" id="input-server-url" class="glass-input" placeholder="wss://... または ws://..." style="font-size: 11px;" />
+            <button id="btn-save-server-url" class="chat-btn" style="padding: 5px 12px; font-size: 11px; white-space: nowrap;">接続してリロード</button>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button id="btn-reset-server-local" class="chat-btn" style="padding: 3px 8px; font-size: 10px; background: rgba(255,255,255,0.06);">ローカル(localhost)に戻す</button>
+            <button id="btn-clear-server-url" class="chat-btn" style="padding: 3px 8px; font-size: 10px; background: rgba(255,255,255,0.06);">初期設定にリセット</button>
+          </div>
+        </div>
+
         <!-- マルチプレイヤテスト用リンク -->
         <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
           <button id="btn-open-second-tab" class="chat-btn" style="font-size: 12px; gap: 6px;">
