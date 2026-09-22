@@ -1,4 +1,6 @@
-import { Server, Room, Client } from 'colyseus';
+import colyseus from 'colyseus';
+const { Server, Room } = colyseus;
+type Client = colyseus.Client;
 import { Schema, type, MapSchema } from '@colyseus/schema';
 import { createServer } from 'http';
 
@@ -204,6 +206,17 @@ export class VoxelGameRoom extends Room<GameWorldState> {
         trunk.type = "wood";
         this.state.voxels.set(trunk.id, trunk);
       }
+      for (let lx = tx - 1; lx <= tx + 1; lx++) {
+        for (let lz = tz - 1; lz <= tz + 1; lz++) {
+          const leaf = new VoxelBlockState();
+          leaf.id = `v_${lx}_4_${lz}`;
+          leaf.x = lx;
+          leaf.y = 4;
+          leaf.z = lz;
+          leaf.type = "leaves";
+          this.state.voxels.set(leaf.id, leaf);
+        }
+      }
     });
   }
 
@@ -224,24 +237,24 @@ export class VoxelGameRoom extends Room<GameWorldState> {
 
   // --- メッセージハンドラー群 ---
   private setupMessageHandlers(): void {
-    // 移動メッセージ
-    this.onMessage("player_move", (client, data: { x: number; y: number; z: number; rotationY: number }) => {
+    // 移動メッセージ (y座標およびrotY/rotationYの互換性を両立)
+    this.onMessage("player_move", (client, data: { x: number; y?: number; z: number; rotationY?: number; rotY?: number }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
         player.x = data.x;
-        player.y = data.y;
+        if (data.y !== undefined) player.y = data.y;
         player.z = data.z;
-        player.rotationY = data.rotationY;
+        player.rotationY = data.rotationY ?? data.rotY ?? 0;
       }
     });
 
-    // プレイヤーの作業（採掘/建設）通知
-    this.onMessage("player_action", (client, data: { action: string; targetX: number; targetZ: number }) => {
+    // プレイヤーの作業（採掘/建設）通知 (action/actionType, x/targetX の互換性を両立)
+    this.onMessage("player_action", (client, data: { action?: string; actionType?: string; targetX?: number; targetZ?: number; x?: number; z?: number }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
-        player.currentAction = data.action;
-        player.targetVoxelX = data.targetX;
-        player.targetVoxelZ = data.targetZ;
+        player.currentAction = data.action || data.actionType || "idle";
+        player.targetVoxelX = data.targetX ?? data.x ?? 0;
+        player.targetVoxelZ = data.targetZ ?? data.z ?? 0;
         player.lastActionTime = Date.now();
       }
     });
@@ -260,6 +273,9 @@ export class VoxelGameRoom extends Room<GameWorldState> {
           player.targetVoxelZ = data.z;
           player.lastActionTime = Date.now();
         }
+
+        // 他クライアントへ破壊イベントを通知
+        this.broadcast("voxel_destroyed", { x: data.x, y: data.y, z: data.z, bySessionId: client.sessionId }, { except: client });
       }
     });
 
@@ -283,6 +299,9 @@ export class VoxelGameRoom extends Room<GameWorldState> {
           player.targetVoxelZ = data.z;
           player.lastActionTime = Date.now();
         }
+
+        // 他クライアントへ配置イベントを通知
+        this.broadcast("voxel_placed", { x: data.x, y: data.y, z: data.z, type: newVoxel.type, bySessionId: client.sessionId }, { except: client });
       }
     });
   }

@@ -3,7 +3,17 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { Client, Room } from 'colyseus.js';
 
-// --- 1. クォータービュー（アイソメトリック）カメラシステム ---
+// 角度の最短方向 Lerp 補間ヘルパー
+export function lerpAngle(current: number, target: number, t: number): number {
+  let diff = (target - current) % (Math.PI * 2);
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  if (diff > Math.PI) diff -= Math.PI * 2;
+  return current + diff * t;
+}
+
+// ============================================================================
+// 1. クォータービュー（アイソメトリック）カメラシステム
+// ============================================================================
 export class IsometricCameraSystem {
   public camera: THREE.OrthographicCamera;
   private aspect: number;
@@ -41,7 +51,9 @@ export class IsometricCameraSystem {
   }
 }
 
-// --- 2. 強化版 VRM アバター & アニメーションコントローラー ---
+// ============================================================================
+// 2. VRM アバター & 精密手続き型アニメーションコントローラー (自プレイヤー専用)
+// ============================================================================
 export type AvatarState = 'idle' | 'walking' | 'mining' | 'building';
 
 export class VRMAvatarController {
@@ -139,7 +151,7 @@ export class VRMAvatarController {
       
       // 目標回転角度へ滑らかに補正
       const targetRotation = Math.atan2(isoInputDir.x, isoInputDir.z);
-      this.rotationY = THREE.MathUtils.lerpAngle(this.rotationY, targetRotation, 0.25);
+      this.rotationY = lerpAngle(this.rotationY, targetRotation, 0.25);
 
       if (this.actionTimer <= 0) {
         this.currentState = 'walking';
@@ -308,18 +320,371 @@ export class VRMAvatarController {
   }
 }
 
-// --- 3. 動的ボクセルワールド (レイキャスト & インスタンス描画) ---
-export type VoxelType = 'grass' | 'dirt' | 'stone' | 'wood' | 'plank';
+// ============================================================================
+// 3. Web Audio API によるシンセサイズ効果音マネージャー (外部依存ゼロ)
+// ============================================================================
+export class SoundManager {
+  private ctx: AudioContext | null = null;
 
-export interface VoxelBlock {
-  x: number;
-  y: number;
-  z: number;
-  type: VoxelType;
+  private initCtx(): void {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        this.ctx = new AudioCtx();
+      }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  // 採掘・ブロック破壊音 (インパクト + ノイズ崩壊)
+  public playMine(): void {
+    this.initCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    // 低音インパクト
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(140, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.12);
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.12);
+
+    // ザクッとした崩壊ノイズ
+    const bufferSize = this.ctx.sampleRate * 0.08;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.3));
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.2, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    noise.connect(noiseGain);
+    noiseGain.connect(this.ctx.destination);
+    noise.start(now);
+  }
+
+  // ブロック設置音 (ポンッという心地よい木質トーン)
+  public playPlace(): void {
+    this.initCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(260, now);
+    osc.frequency.exponentialRampToValueAtTime(420, now + 0.06);
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.09);
+  }
+
+  // ブロックパレット切替音 (短いクリック音)
+  public playSelect(): void {
+    this.initCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(800, now);
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.03);
+  }
+
+  // NPC呼びかけ・セリフ更新通知音 (ピロリン音)
+  public playNotice(): void {
+    this.initCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    [0, 0.08].forEach((offset, idx) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(idx === 0 ? 523.25 : 783.99, now + offset); // C5 -> G5
+      gain.gain.setValueAtTime(0.12, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.15);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.15);
+    });
+  }
 }
 
+// ============================================================================
+// 4. 採掘パーティクル演出システム (VFX)
+// ============================================================================
+interface Particle {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  life: number;
+  maxLife: number;
+}
+
+export class VoxelParticleSystem {
+  private particles: Particle[] = [];
+  private geo = new THREE.BoxGeometry(0.16, 0.16, 0.16);
+
+  constructor(private scene: THREE.Scene) {}
+
+  public spawnExplosion(x: number, y: number, z: number, color: THREE.Color, count = 12): void {
+    const mat = new THREE.MeshBasicMaterial({ color });
+
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(this.geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 0.6,
+        y + (Math.random() - 0.5) * 0.6,
+        z + (Math.random() - 0.5) * 0.6
+      );
+      mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+
+      const velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 4.5,
+        Math.random() * 4.0 + 1.5,
+        (Math.random() - 0.5) * 4.5
+      );
+
+      this.scene.add(mesh);
+      this.particles.push({
+        mesh,
+        velocity,
+        life: 0,
+        maxLife: 0.45 + Math.random() * 0.25
+      });
+    }
+  }
+
+  public update(delta: number): void {
+    const gravity = -9.8;
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life += delta;
+
+      if (p.life >= p.maxLife) {
+        this.scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        this.particles.splice(i, 1);
+        continue;
+      }
+
+      // 重力と速度の適用
+      p.velocity.y += gravity * delta;
+      p.mesh.position.addScaledVector(p.velocity, delta);
+
+      // 時間経過で縮小
+      const scale = 1.0 - p.life / p.maxLife;
+      p.mesh.scale.set(scale, scale, scale);
+    }
+  }
+}
+
+// ============================================================================
+// 5. 他プレイヤー (Remote Player) 軽量プロシージャルレンダラー
+// ============================================================================
+export class RemotePlayerRenderer {
+  public group = new THREE.Group();
+  public targetPos = new THREE.Vector3();
+  public targetRotY = 0;
+  private walkTime = 0;
+  private leftArm: THREE.Mesh;
+  private rightArm: THREE.Mesh;
+  private body: THREE.Mesh;
+
+  constructor(public id: string, name: string) {
+    // 愛らしいボクセル風キャラクター
+    const bodyGeo = new THREE.BoxGeometry(0.5, 0.7, 0.35);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 }); // 青系服
+    this.body = new THREE.Mesh(bodyGeo, bodyMat);
+    this.body.position.y = 0.5;
+    this.group.add(this.body);
+
+    const headGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047 }); // 頭部
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.05;
+    this.group.add(head);
+
+    const armGeo = new THREE.BoxGeometry(0.15, 0.5, 0.15);
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x60a5fa });
+
+    this.leftArm = new THREE.Mesh(armGeo, armMat);
+    this.leftArm.position.set(-0.35, 0.5, 0);
+    this.group.add(this.leftArm);
+
+    this.rightArm = new THREE.Mesh(armGeo, armMat);
+    this.rightArm.position.set(0.35, 0.5, 0);
+    this.group.add(this.rightArm);
+
+    // ネームプレート (Canvas Texture)
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.roundRect(10, 10, 236, 44, 10);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 24px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(name, 128, 32);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: texture });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.position.set(0, 1.5, 0);
+    sprite.scale.set(1.5, 0.38, 1);
+    this.group.add(sprite);
+  }
+
+  public update(delta: number): void {
+    this.group.position.lerp(this.targetPos, 0.2);
+    this.group.rotation.y = lerpAngle(this.group.rotation.y, this.targetRotY, 0.2);
+
+    const isMoving = this.group.position.distanceTo(this.targetPos) > 0.05;
+    if (isMoving) {
+      this.walkTime += delta * 10;
+      const angle = Math.sin(this.walkTime) * 0.6;
+      this.leftArm.rotation.x = angle;
+      this.rightArm.rotation.x = -angle;
+      this.body.position.y = 0.5 + Math.abs(Math.sin(this.walkTime * 2)) * 0.05;
+    } else {
+      this.leftArm.rotation.x = 0;
+      this.rightArm.rotation.x = 0;
+      this.body.position.y = 0.5;
+    }
+  }
+}
+
+// ============================================================================
+// 6. GOAP 自律型手助けNPC (お手伝いピコ) 3Dレンダラー
+// ============================================================================
+export class NPCRenderer {
+  public group = new THREE.Group();
+  public targetPos = new THREE.Vector3(2, 0.5, 2);
+  private walkTime = 0;
+  private speechSprite: THREE.Sprite;
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D | null;
+  private currentMsg = '';
+
+  constructor(public name: string = 'お手伝いピコ') {
+    // 愛情深いマスコットロボット風デザイン
+    const bodyGeo = new THREE.BoxGeometry(0.55, 0.6, 0.45);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.4 }); // ライトブルー
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 0.45;
+    this.group.add(body);
+
+    const headGeo = new THREE.BoxGeometry(0.48, 0.45, 0.45);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xf0f9ff, roughness: 0.3 }); // 白い顔
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 0.95;
+    this.group.add(head);
+
+    // アンテナ
+    const antGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.3);
+    const antMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b });
+    const ant = new THREE.Mesh(antGeo, antMat);
+    ant.position.y = 1.3;
+    this.group.add(ant);
+
+    // 頭上ビルボード会話吹き出し
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = 512;
+    this.canvas.height = 128;
+    this.ctx = this.canvas.getContext('2d');
+
+    const texture = new THREE.CanvasTexture(this.canvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: texture });
+    this.speechSprite = new THREE.Sprite(spriteMat);
+    this.speechSprite.position.set(0, 1.8, 0);
+    this.speechSprite.scale.set(2.4, 0.6, 1);
+    this.group.add(this.speechSprite);
+
+    this.updateSpeechBubble('こんにちは！');
+  }
+
+  public updateSpeechBubble(msg: string): void {
+    if (this.currentMsg === msg || !this.ctx) return;
+    this.currentMsg = msg;
+
+    this.ctx.clearRect(0, 0, 512, 128);
+
+    // 吹き出し背景
+    this.ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    this.ctx.strokeStyle = '#38bdf8';
+    this.ctx.lineWidth = 4;
+    this.ctx.roundRect(16, 16, 480, 96, 20);
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    // NPC名とメッセージ
+    this.ctx.fillStyle = '#38bdf8';
+    this.ctx.font = 'bold 22px sans-serif';
+    this.ctx.fillText(`🤖 ${this.name}`, 36, 46);
+
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = '20px sans-serif';
+    const trimmed = msg.length > 22 ? msg.substring(0, 22) + '...' : msg;
+    this.ctx.fillText(trimmed, 36, 82);
+
+    this.speechSprite.material.map!.needsUpdate = true;
+  }
+
+  public update(delta: number): void {
+    const dist = this.group.position.distanceTo(this.targetPos);
+    if (dist > 0.05) {
+      this.group.position.lerp(this.targetPos, 0.15);
+
+      // 移動方向を向く
+      const dx = this.targetPos.x - this.group.position.x;
+      const dz = this.targetPos.z - this.group.position.z;
+      if (Math.hypot(dx, dz) > 0.01) {
+        const targetAngle = Math.atan2(dx, dz);
+        this.group.rotation.y = lerpAngle(this.group.rotation.y, targetAngle, 0.2);
+      }
+
+      // ちょこちょこ歩くバウンド
+      this.walkTime += delta * 12;
+      this.group.position.y = 0.5 + Math.abs(Math.sin(this.walkTime)) * 0.12;
+    } else {
+      this.group.position.y = 0.5;
+    }
+  }
+}
+
+// ============================================================================
+// 7. 動的ボクセルワールド (6種対応・InstancedMesh高速描画)
+// ============================================================================
+export type VoxelType = 'grass' | 'dirt' | 'stone' | 'wood' | 'leaves' | 'plank';
+
 export class DynamicVoxelWorld {
-  private voxelMap = new Map<string, VoxelType>();
+  public voxelMap = new Map<string, VoxelType>();
   private meshMap = new Map<VoxelType, THREE.InstancedMesh>();
   private dummy = new THREE.Object3D();
 
@@ -328,6 +693,7 @@ export class DynamicVoxelWorld {
     dirt: new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.9 }),
     stone: new THREE.MeshStandardMaterial({ color: 0x777788, roughness: 0.6 }),
     wood: new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.7 }),
+    leaves: new THREE.MeshStandardMaterial({ color: 0x3e8e41, roughness: 0.8 }),
     plank: new THREE.MeshStandardMaterial({ color: 0xc4a482, roughness: 0.5 })
   };
 
@@ -337,20 +703,20 @@ export class DynamicVoxelWorld {
   }
 
   private initWorldData(): void {
-    // 平地 + 起伏 + ボクセルの木々
+    // ローカルワールド先行生成 (ソロ・オフライン完全動作の担保)
     for (let x = -this.worldSize / 2; x <= this.worldSize / 2; x++) {
       for (let z = -this.worldSize / 2; z <= this.worldSize / 2; z++) {
         const key = `${x},0,${z}`;
         this.voxelMap.set(key, 'grass');
 
-        // 中央近くに起伏の丘
+        // 起伏の丘
         if (Math.hypot(x, z) < 6) {
           this.voxelMap.set(`${x},1,${z}`, 'dirt');
         }
       }
     }
 
-    // ボクセルの木々を複数配置
+    // 木々 (原木 + 葉冠)
     const trees = [[-5, -5], [6, 6], [-7, 5], [5, -6]];
     trees.forEach(([tx, tz]) => {
       for (let h = 1; h <= 3; h++) {
@@ -358,7 +724,7 @@ export class DynamicVoxelWorld {
       }
       for (let lx = tx - 1; lx <= tx + 1; lx++) {
         for (let lz = tz - 1; lz <= tz + 1; lz++) {
-          this.voxelMap.set(`${lx},4,${lz}`, 'grass');
+          this.voxelMap.set(`${lx},4,${lz}`, 'leaves');
         }
       }
     });
@@ -368,7 +734,7 @@ export class DynamicVoxelWorld {
     const geometry = new THREE.BoxGeometry(0.98, 0.98, 0.98);
 
     (Object.keys(this.materials) as VoxelType[]).forEach((type) => {
-      const mesh = new THREE.InstancedMesh(geometry, this.materials[type], 1000);
+      const mesh = new THREE.InstancedMesh(geometry, this.materials[type], 2500);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.meshMap.set(type, mesh);
@@ -379,12 +745,14 @@ export class DynamicVoxelWorld {
   }
 
   public rebuildMeshes(): void {
-    const counts: Record<VoxelType, number> = { grass: 0, dirt: 0, stone: 0, wood: 0, plank: 0 };
+    const counts: Record<VoxelType, number> = {
+      grass: 0, dirt: 0, stone: 0, wood: 0, leaves: 0, plank: 0
+    };
 
     this.voxelMap.forEach((type, key) => {
       const [x, y, z] = key.split(',').map(Number);
       const mesh = this.meshMap.get(type);
-      if (mesh) {
+      if (mesh && counts[type] < 2500) {
         const idx = counts[type]++;
         this.dummy.position.set(x, y, z);
         this.dummy.updateMatrix();
@@ -409,6 +777,16 @@ export class DynamicVoxelWorld {
     return 0.5;
   }
 
+  public getVoxelType(x: number, y: number, z: number): VoxelType | undefined {
+    return this.voxelMap.get(`${x},${y},${z}`);
+  }
+
+  public getVoxelColor(type: VoxelType): THREE.Color {
+    const mat = this.materials[type];
+    return mat ? mat.color : new THREE.Color(0x888888);
+  }
+
+  // 採掘・削除 (即時Optimistic)
   public removeVoxel(x: number, y: number, z: number): boolean {
     const key = `${x},${y},${z}`;
     if (this.voxelMap.has(key)) {
@@ -419,6 +797,7 @@ export class DynamicVoxelWorld {
     return false;
   }
 
+  // 配置・追加 (即時Optimistic)
   public addVoxel(x: number, y: number, z: number, type: VoxelType): boolean {
     const key = `${x},${y},${z}`;
     if (!this.voxelMap.has(key)) {
@@ -429,12 +808,22 @@ export class DynamicVoxelWorld {
     return false;
   }
 
+  // サーバー初期同期用 (バッチ取り込み)
+  public batchMerge(voxels: Array<{ x: number; y: number; z: number; type: VoxelType }>): void {
+    voxels.forEach((v) => {
+      this.voxelMap.set(`${v.x},${v.y},${v.z}`, v.type);
+    });
+    this.rebuildMeshes();
+  }
+
   public getInstancedMeshes(): THREE.InstancedMesh[] {
     return Array.from(this.meshMap.values());
   }
 }
 
-// --- 4. Colyseus ネットワーク同期コントローラー ---
+// ============================================================================
+// 8. Colyseus ネットワーク同期コントローラー (リアルタイム双方向同期)
+// ============================================================================
 export class NetworkController {
   private client: Client;
   public room: Room | null = null;
@@ -444,31 +833,108 @@ export class NetworkController {
     this.client = new Client(serverUrl);
   }
 
-  public async connect(onStatusChange?: (msg: string) => void): Promise<boolean> {
+  public async connect(
+    onStatusChange: (msg: string, isOnline: boolean) => void,
+    onVoxelAdd: (x: number, y: number, z: number, type: VoxelType, isRemote: boolean) => void,
+    onVoxelRemove: (x: number, y: number, z: number, isRemote: boolean) => void,
+    onPlayerJoin: (id: string, name: string, x: number, y: number, z: number) => void,
+    onPlayerLeave: (id: string) => void,
+    onPlayerMove: (id: string, x: number, y: number, z: number, rotY: number) => void,
+    onNPCUpdate: (npc: { id: string; name: string; x: number; y: number; z: number; targetX: number; targetZ: number; goal: string; task: string; message: string }) => void
+  ): Promise<boolean> {
     try {
-      if (onStatusChange) onStatusChange('Colyseus サーバーへ接続中...');
+      onStatusChange('Colyseus サーバーへ接続中...', false);
       this.room = await this.client.joinOrCreate('voxel_room');
       this.isConnected = true;
-      if (onStatusChange) onStatusChange('🟢 オンライン (Colyseus同期中)');
+      onStatusChange(`🟢 ONLINE (${this.room.id})`, true);
       console.log('✅ Colyseus ルーム参加完了:', this.room.id);
+
+      // --- A. ボクセル同期 ---
+      this.room.state.voxels.onAdd = (voxel: { x: number; y: number; z: number; type: string }) => {
+        onVoxelAdd(voxel.x, voxel.y, voxel.z, (voxel.type as VoxelType) || 'dirt', true);
+      };
+
+      this.room.state.voxels.onRemove = (voxel: { x: number; y: number; z: number }) => {
+        onVoxelRemove(voxel.x, voxel.y, voxel.z, true);
+      };
+
+      // --- B. プレイヤー同期 ---
+      this.room.state.players.onAdd = (player: { id: string; name: string; x: number; y: number; z: number; rotationY: number }, sessionId: string) => {
+        if (sessionId !== this.room?.sessionId) {
+          onPlayerJoin(sessionId, player.name || `Player_${sessionId.substring(0, 4)}`, player.x, player.y, player.z);
+        }
+      };
+
+      this.room.state.players.onRemove = (_player: unknown, sessionId: string) => {
+        if (sessionId !== this.room?.sessionId) {
+          onPlayerLeave(sessionId);
+        }
+      };
+
+      this.room.state.players.onChange = (player: { x: number; y: number; z: number; rotationY: number }, sessionId: string) => {
+        if (sessionId !== this.room?.sessionId) {
+          onPlayerMove(sessionId, player.x, player.y, player.z, player.rotationY || 0);
+        }
+      };
+
+      // --- C. GOAP NPC同期 ---
+      this.room.state.npcs.onAdd = (npc: { id: string; name: string; x: number; y: number; z: number; targetX: number; targetZ: number; currentGoal: string; currentTask: string; statusMessage: string }) => {
+        onNPCUpdate({
+          id: npc.id,
+          name: npc.name,
+          x: npc.x,
+          y: npc.y,
+          z: npc.z,
+          targetX: npc.targetX,
+          targetZ: npc.targetZ,
+          goal: npc.currentGoal,
+          task: npc.currentTask,
+          message: npc.statusMessage
+        });
+      };
+
+      this.room.state.npcs.onChange = (npc: { id: string; name: string; x: number; y: number; z: number; targetX: number; targetZ: number; currentGoal: string; currentTask: string; statusMessage: string }) => {
+        onNPCUpdate({
+          id: npc.id,
+          name: npc.name,
+          x: npc.x,
+          y: npc.y,
+          z: npc.z,
+          targetX: npc.targetX,
+          targetZ: npc.targetZ,
+          goal: npc.currentGoal,
+          task: npc.currentTask,
+          message: npc.statusMessage
+        });
+      };
+
+      // 破壊・設置のブロードキャスト受信 (SE / パーティクル)
+      this.room.onMessage('voxel_destroyed', (data: { x: number; y: number; z: number }) => {
+        onVoxelRemove(data.x, data.y, data.z, true);
+      });
+
+      this.room.onMessage('voxel_placed', (data: { x: number; y: number; z: number; type: VoxelType }) => {
+        onVoxelAdd(data.x, data.y, data.z, data.type, true);
+      });
+
       return true;
     } catch (e) {
       this.isConnected = false;
-      if (onStatusChange) onStatusChange('🟡 オフライン (スタンドアロン動作中)');
-      console.warn('⚠️ Colyseus サーバー非接続。スタンドアロンモードで起動します。');
+      onStatusChange('🟡 OFFLINE (ソロプレイ)', false);
+      console.warn('⚠️ Colyseus サーバー非接続。スタンドアロンモードで動作します。', e);
       return false;
     }
   }
 
-  public sendPlayerMove(x: number, z: number, rotY: number): void {
+  public sendPlayerMove(x: number, y: number, z: number, rotationY: number): void {
     if (this.isConnected && this.room) {
-      this.room.send('player_move', { x, z, rotY });
+      this.room.send('player_move', { x, y, z, rotationY, rotY: rotationY });
     }
   }
 
-  public sendPlayerAction(actionType: 'mine' | 'build', x: number, y: number, z: number): void {
+  public sendPlayerAction(action: 'mine' | 'build', x: number, y: number, z: number): void {
     if (this.isConnected && this.room) {
-      this.room.send('player_action', { actionType, x, y, z });
+      this.room.send('player_action', { action, actionType: action, targetX: x, targetZ: z, x, z });
     }
   }
 
@@ -485,7 +951,9 @@ export class NetworkController {
   }
 }
 
-// --- 5. メインアプリケーション統合 ---
+// ============================================================================
+// 9. メインアプリケーション統合 (VoxelVRMApp)
+// ============================================================================
 export class VoxelVRMApp {
   private scene: THREE.Scene;
   private renderer: THREE.WebGLRenderer;
@@ -493,13 +961,19 @@ export class VoxelVRMApp {
   private avatar: VRMAvatarController;
   private world: DynamicVoxelWorld;
   private network: NetworkController;
+  private sounds = new SoundManager();
+  private particles: VoxelParticleSystem;
   private clock = new THREE.Clock();
+
+  // リモートプレイヤー & NPC
+  private remotePlayers = new Map<string, RemotePlayerRenderer>();
+  private npcRenderer: NPCRenderer;
 
   // レイキャスト & カーソル表示
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
   private cursorMesh: THREE.LineSegments;
-  private selectedVoxelType: VoxelType = 'plank';
+  private selectedVoxelType: VoxelType = 'grass';
 
   // キー状態
   private keys: { [key: string]: boolean } = {};
@@ -520,7 +994,12 @@ export class VoxelVRMApp {
     this.cameraSys = new IsometricCameraSystem(window.innerWidth / window.innerHeight);
     this.avatar = new VRMAvatarController(this.scene);
     this.world = new DynamicVoxelWorld(this.scene);
+    this.particles = new VoxelParticleSystem(this.scene);
     this.network = new NetworkController();
+
+    // NPC 表示の初期化
+    this.npcRenderer = new NPCRenderer('お手伝いピコ');
+    this.scene.add(this.npcRenderer.group);
 
     // ホバー選択枠（ワイヤーフレームカーソル）
     const boxGeo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
@@ -535,6 +1014,7 @@ export class VoxelVRMApp {
     this.setupLighting();
     this.setupInputListeners();
     this.setupDragAndDrop();
+    this.setupPaletteUI();
 
     window.addEventListener('resize', () => {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -546,11 +1026,88 @@ export class VoxelVRMApp {
   }
 
   private async initApp(): Promise<void> {
-    await this.network.connect((status) => this.updateStatus(status));
+    // ネットワーク同期リスナーの設定
+    await this.network.connect(
+      (msg, isOnline) => {
+        this.updateNetworkStatus(msg, isOnline);
+      },
+      // ボクセル追加 (他プレイヤー/サーバー同期)
+      (x, y, z, type, isRemote) => {
+        if (isRemote) {
+          // 既にローカルで同一タイプなら再構築スキップ (冪等)
+          const current = this.world.getVoxelType(x, y, z);
+          if (current !== type) {
+            this.world.addVoxel(x, y, z, type);
+            this.sounds.playPlace();
+          }
+        }
+      },
+      // ボクセル削除 (他プレイヤー/サーバー同期)
+      (x, y, z, isRemote) => {
+        if (isRemote) {
+          const type = this.world.getVoxelType(x, y, z);
+          if (type) {
+            const color = this.world.getVoxelColor(type);
+            this.world.removeVoxel(x, y, z);
+            this.particles.spawnExplosion(x, y, z, color);
+            this.sounds.playMine();
+          }
+        }
+      },
+      // 他プレイヤー参加
+      (id, name, x, y, z) => {
+        if (!this.remotePlayers.has(id)) {
+          const rp = new RemotePlayerRenderer(id, name);
+          rp.group.position.set(x, y, z);
+          rp.targetPos.set(x, y, z);
+          this.scene.add(rp.group);
+          this.remotePlayers.set(id, rp);
+          console.log(`👤 リモートプレイヤー表示: ${name}`);
+        }
+      },
+      // 他プレイヤー退出
+      (id) => {
+        const rp = this.remotePlayers.get(id);
+        if (rp) {
+          this.scene.remove(rp.group);
+          this.remotePlayers.delete(id);
+        }
+      },
+      // 他プレイヤー移動
+      (id, x, y, z, rotY) => {
+        const rp = this.remotePlayers.get(id);
+        if (rp) {
+          rp.targetPos.set(x, y, z);
+          rp.targetRotY = rotY;
+        }
+      },
+      // GOAP NPC 更新
+      (npc) => {
+        this.npcRenderer.targetPos.set(npc.x, npc.y, npc.z);
+        this.npcRenderer.updateSpeechBubble(npc.message);
+
+        // HUD 更新
+        const nameEl = document.getElementById('npc-name');
+        const goalEl = document.getElementById('npc-goal');
+        const taskEl = document.getElementById('npc-task');
+        const msgEl = document.getElementById('npc-message');
+
+        if (nameEl) nameEl.innerText = npc.name;
+        if (goalEl) goalEl.innerText = `目標: ${npc.goal}`;
+        if (taskEl) taskEl.innerText = `タスク: ${npc.task}`;
+        if (msgEl) {
+          if (msgEl.innerText !== `「${npc.message}」`) {
+            this.sounds.playNotice();
+          }
+          msgEl.innerText = `「${npc.message}」`;
+        }
+      }
+    );
 
     // サンプルVRMモデルのロード
     const sampleVrmUrl = 'https://pixiv.github.io/three-vrm/packages/three-vrm/examples/models/VRM1_Constraint_Sample.vrm';
     try {
+      this.updateStatus('VRMアバター読み込み中...');
       await this.avatar.loadVRMFromUrl(sampleVrmUrl);
       this.updateStatus('🟢 準備完了: WASDで移動 / 左クリックで採掘 / 右クリックで設置');
     } catch {
@@ -561,10 +1118,10 @@ export class VoxelVRMApp {
   }
 
   private setupLighting(): void {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     this.scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xfffaed, 1.2);
+    const dirLight = new THREE.DirectionalLight(0xfffaed, 1.25);
     dirLight.position.set(40, 60, 30);
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 2048;
@@ -575,10 +1132,17 @@ export class VoxelVRMApp {
   private setupInputListeners(): void {
     window.addEventListener('keydown', (e) => {
       this.keys[e.key.toLowerCase()] = true;
-      if (['1', '2', '3', '4', '5'].includes(e.key)) {
-        const types: VoxelType[] = ['plank', 'wood', 'stone', 'dirt', 'grass'];
-        this.selectedVoxelType = types[parseInt(e.key) - 1];
-        this.updateUIOverlay();
+      const keyMap: Record<string, VoxelType> = {
+        '1': 'grass',
+        '2': 'dirt',
+        '3': 'stone',
+        '4': 'wood',
+        '5': 'leaves',
+        '6': 'plank'
+      };
+
+      if (keyMap[e.key]) {
+        this.selectVoxelType(keyMap[e.key]);
       }
     });
 
@@ -595,20 +1159,30 @@ export class VoxelVRMApp {
       const { x, y, z, normal } = this.selectedTarget;
 
       if (e.button === 0) {
-        // 左クリック: 採掘・破壊
-        if (this.world.removeVoxel(x, y, z)) {
-          this.avatar.triggerMiningAnimation(); // 腕振るいモーション発火
+        // --- 左クリック: 即時採掘・破壊 (Optimistic Update) ---
+        const type = this.world.getVoxelType(x, y, z);
+        if (type && this.world.removeVoxel(x, y, z)) {
+          // 即時エフェクト & SE
+          this.avatar.triggerMiningAnimation();
+          this.particles.spawnExplosion(x, y, z, this.world.getVoxelColor(type));
+          this.sounds.playMine();
+
+          // サーバー通知
           this.network.sendDestroyVoxel(x, y, z);
           this.network.sendPlayerAction('mine', x, y, z);
         }
       } else if (e.button === 2) {
-        // 右クリック: 建設・配置
+        // --- 右クリック: 即時建設・配置 (Optimistic Update) ---
         const nx = x + normal.x;
         const ny = y + normal.y;
         const nz = z + normal.z;
 
         if (this.world.addVoxel(nx, ny, nz, this.selectedVoxelType)) {
-          this.avatar.triggerBuildingAnimation(); // 設置構えモーション発火
+          // 即時エフェクト & SE
+          this.avatar.triggerBuildingAnimation();
+          this.sounds.playPlace();
+
+          // サーバー通知
           this.network.sendPlaceVoxel(nx, ny, nz, this.selectedVoxelType);
           this.network.sendPlayerAction('build', nx, ny, nz);
         }
@@ -616,6 +1190,34 @@ export class VoxelVRMApp {
     });
 
     window.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  private setupPaletteUI(): void {
+    const slots = document.querySelectorAll('.palette-slot');
+    slots.forEach((slot) => {
+      slot.addEventListener('click', () => {
+        const type = slot.getAttribute('data-type') as VoxelType;
+        if (type) {
+          this.selectVoxelType(type);
+        }
+      });
+    });
+  }
+
+  private selectVoxelType(type: VoxelType): void {
+    if (this.selectedVoxelType === type) return;
+    this.selectedVoxelType = type;
+    this.sounds.playSelect();
+
+    // UIハイライト更新
+    const slots = document.querySelectorAll('.palette-slot');
+    slots.forEach((s) => {
+      if (s.getAttribute('data-type') === type) {
+        s.classList.add('active');
+      } else {
+        s.classList.remove('active');
+      }
+    });
   }
 
   private setupDragAndDrop(): void {
@@ -626,6 +1228,7 @@ export class VoxelVRMApp {
       if (files && files.length > 0 && files[0].name.endsWith('.vrm')) {
         const blobUrl = URL.createObjectURL(files[0]);
         this.avatar.loadVRMFromUrl(blobUrl);
+        this.updateStatus(`✅ VRMモデル適用: ${files[0].name}`);
       }
     });
   }
@@ -658,19 +1261,21 @@ export class VoxelVRMApp {
     this.cursorMesh.visible = false;
   }
 
-  private updateUIOverlay(): void {
-    const el = document.getElementById('ui-overlay');
-    if (el) {
-      el.innerHTML = `
-        <b>選択ブロック:</b> ${this.selectedVoxelType.toUpperCase()} (数字キー1-5で切替)<br/>
-        <b>操作:</b> WASDで移動 / 左クリックで採掘 / 右クリックで配置
-      `;
-    }
-  }
-
   private updateStatus(msg: string): void {
     const statusEl = document.getElementById('status');
     if (statusEl) statusEl.innerText = msg;
+  }
+
+  private updateNetworkStatus(msg: string, isOnline: boolean): void {
+    const badge = document.getElementById('network-badge');
+    if (badge) {
+      badge.innerText = msg;
+      if (isOnline) {
+        badge.classList.remove('offline');
+      } else {
+        badge.classList.add('offline');
+      }
+    }
   }
 
   private animate = (): void => {
@@ -689,10 +1294,20 @@ export class VoxelVRMApp {
     const groundY = this.world.getGroundHeight(this.avatar.position.x, this.avatar.position.z);
     this.avatar.update(delta, inputDir, groundY);
 
-    // ネットワーク位置送信
+    // ネットワーク位置送信 (y座標およびrotationYを含める)
     if (inputDir.lengthSq() > 0) {
-      this.network.sendPlayerMove(this.avatar.position.x, this.avatar.position.z, this.avatar.rotationY);
+      this.network.sendPlayerMove(
+        this.avatar.position.x,
+        this.avatar.position.y,
+        this.avatar.position.z,
+        this.avatar.rotationY
+      );
     }
+
+    // パーティクル & リモートプレイヤー & NPC の更新
+    this.particles.update(delta);
+    this.remotePlayers.forEach((rp) => rp.update(delta));
+    this.npcRenderer.update(delta);
 
     // マウスホバー & Raycast 更新
     this.updateRaycastHover();

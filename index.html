@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>ai-vrm-village | ボクセル箱庭 × VRM × GOAP自律型手助けNPC</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #87ceeb;
+      color: #fff;
+    }
+
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* HUD 全体レイヤー (クリック透過) */
+    #hud-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px;
+    }
+
+    /* 共通グラスモフィズムカード */
+    .glass-card {
+      background: rgba(18, 24, 38, 0.75);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+      padding: 12px 16px;
+      pointer-events: auto;
+    }
+
+    /* 上部エリア */
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .title-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .title-badge h1 {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #f8fafc;
+    }
+
+    #network-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #6ee7b7;
+    }
+
+    #network-badge.offline {
+      background: rgba(245, 158, 11, 0.2);
+      border-color: rgba(245, 158, 11, 0.4);
+      color: #fcd34d;
+    }
+
+    #status {
+      font-size: 13px;
+      color: #cbd5e1;
+      margin-top: 4px;
+    }
+
+    /* NPC ステータスカード */
+    #npc-hud {
+      min-width: 280px;
+      max-width: 360px;
+    }
+
+    .npc-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .npc-avatar-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #38bdf8, #818cf8);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .npc-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+
+    .npc-meta {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+
+    .npc-bubble {
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: rgba(56, 189, 248, 0.15);
+      border-left: 3px solid #38bdf8;
+      border-radius: 4px 8px 8px 4px;
+      font-size: 13px;
+      color: #e0f2fe;
+      font-style: italic;
+    }
+
+    /* 左下 操作ガイド */
+    #controls-guide {
+      align-self: flex-start;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #cbd5e1;
+      max-width: 260px;
+    }
+
+    #controls-guide b {
+      color: #f1f5f9;
+    }
+
+    .key-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      font-family: monospace;
+      font-weight: bold;
+      color: #38bdf8;
+    }
+
+    /* 下部中央 ブロックパレット */
+    .bottom-center-bar {
+      align-self: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #block-palette {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+    }
+
+    .palette-slot {
+      position: relative;
+      width: 54px;
+      height: 54px;
+      background: rgba(30, 41, 59, 0.8);
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+      pointer-events: auto;
+    }
+
+    .palette-slot:hover {
+      border-color: #38bdf8;
+      transform: translateY(-2px);
+      background: rgba(51, 65, 85, 0.9);
+    }
+
+    .palette-slot.active {
+      border-color: #facc15;
+      background: rgba(250, 204, 21, 0.2);
+      box-shadow: 0 0 12px rgba(250, 204, 21, 0.5);
+      transform: translateY(-4px);
+    }
+
+    .slot-key {
+      position: absolute;
+      top: 2px;
+      left: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #94a3b8;
+    }
+
+    .slot-color {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      margin-top: 4px;
+    }
+
+    .slot-name {
+      font-size: 10px;
+      font-weight: 600;
+      margin-top: 2px;
+      color: #e2e8f0;
+      text-transform: capitalize;
+    }
+
+    /* 互換用非表示要素 */
+    #ui-overlay {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- Three.js Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- HUD Overlay Layer -->
+  <div id="hud-layer">
+    <!-- Top Area -->
+    <div class="top-bar">
+      <!-- App Status & Title -->
+      <div class="glass-card title-badge">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h1>🌲 AI VRM Village</h1>
+            <div id="network-badge">🟡 OFFLINE</div>
+          </div>
+          <div id="status">初期化中...</div>
+        </div>
+      </div>
+
+      <!-- GOAP NPC Status Card -->
+      <div id="npc-hud" class="glass-card">
+        <div class="npc-header">
+          <div class="npc-avatar-icon">🤖</div>
+          <div>
+            <div class="npc-title" id="npc-name">お手伝いピコ</div>
+            <div class="npc-meta" id="npc-goal">目標: プレイヤーの探索</div>
+          </div>
+        </div>
+        <div class="npc-meta" id="npc-task">タスク: 見回り待機中</div>
+        <div class="npc-bubble" id="npc-message">「何か手伝えることはあるかな？」</div>
+      </div>
+    </div>
+
+    <!-- Bottom Area -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; width: 100%;">
+      <!-- Controls Guide (Left Bottom) -->
+      <div id="controls-guide" class="glass-card">
+        <div style="font-weight: bold; margin-bottom: 4px; color: #38bdf8;">🎮 操作ガイド</div>
+        <div><span class="key-badge">W</span><span class="key-badge">A</span><span class="key-badge">S</span><span class="key-badge">D</span> 移動</div>
+        <div><b>左クリック</b>: 採掘・破壊</div>
+        <div><b>右クリック</b>: ブロック配置</div>
+        <div><span class="key-badge">1</span>〜<span class="key-badge">6</span> / <b>クリック</b>: ブロック選択</div>
+        <div><b>VRMファイル</b>: 画面にD&Dでアバター変更</div>
+      </div>
+
+      <!-- Block Palette (Bottom Center) -->
+      <div class="bottom-center-bar">
+        <div id="block-palette" class="glass-card">
+          <!-- Dynamically populated or static slots -->
+          <div class="palette-slot active" data-type="grass" data-key="1">
+            <span class="slot-key">1</span>
+            <div class="slot-color" style="background: #55aa44;"></div>
+            <span class="slot-name">草地</span>
+          </div>
+          <div class="palette-slot" data-type="dirt" data-key="2">
+            <span class="slot-key">2</span>
+            <div class="slot-color" style="background: #8b5a2b;"></div>
+            <span class="slot-name">土</span>
+          </div>
+          <div class="palette-slot" data-type="stone" data-key="3">
+            <span class="slot-key">3</span>
+            <div class="slot-color" style="background: #777788;"></div>
+            <span class="slot-name">石</span>
+          </div>
+          <div class="palette-slot" data-type="wood" data-key="4">
+            <span class="slot-key">4</span>
+            <div class="slot-color" style="background: #5c4033;"></div>
+            <span class="slot-name">原木</span>
+          </div>
+          <div class="palette-slot" data-type="leaves" data-key="5">
+            <span class="slot-key">5</span>
+            <div class="slot-color" style="background: #3e8e41;"></div>
+            <span class="slot-name">葉</span>
+          </div>
+          <div class="palette-slot" data-type="plank" data-key="6">
+            <span class="slot-key">6</span>
+            <div class="slot-color" style="background: #c4a482;"></div>
+            <span class="slot-name">木板</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Spacer for balance -->
+      <div style="width: 260px;"></div>
+    </div>
+  </div>
+
+  <div id="ui-overlay"></div>
+
+  <!-- Main Client Script -->
+  <script type="module" src="/client.ts"></script>
+</body>
+</html>
