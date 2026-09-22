@@ -28,10 +28,10 @@ export function getVRMMeta(vrm: VRM, fallbackFileName?: string): { title: string
   return { title, author };
 }
 
-// VRM顔写真の自動オフスクリーン撮影 (Face Capture: スタジオライティング付きで明るく鮮明に撮影)
+// VRM顔写真の自動オフスクリーン撮影 (Face Capture: 独立シーン & 専用スタジオライティングで被写体のみを美しく撮影)
 export function captureVRMFace(renderer: THREE.WebGLRenderer, scene: THREE.Scene, vrm: VRM): string {
-  const lightsToAdd: THREE.Object3D[] = [];
   const disposables: { dispose: () => void }[] = [];
+  const originalParent = vrm.scene.parent || scene;
 
   try {
     const width = 256;
@@ -41,6 +41,16 @@ export function captureVRMFace(renderer: THREE.WebGLRenderer, scene: THREE.Scene
       magFilter: THREE.LinearFilter,
       format: THREE.RGBAFormat,
     });
+    disposables.push(target);
+
+    // 💡 ワールドオブジェクト（ボックスマン、ブロック、他プレイヤー、ピコ等）の写り込みを
+    // 完全に防止するため、顔撮影専用の独立したシーンを作成
+    const captureScene = new THREE.Scene();
+    captureScene.background = new THREE.Color(0xf0f0f0); // 白系ニュートラル背景
+
+    // 一時的にVRMモデルのみを撮影専用シーンへ移設
+    captureScene.add(vrm.scene);
+    vrm.scene.updateMatrixWorld(true);
 
     // 頭部ボーン位置の取得
     const headNode = vrm.humanoid?.getNormalizedBoneNode('head') || vrm.humanoid?.getRawBoneNode('head');
@@ -59,52 +69,60 @@ export function captureVRMFace(renderer: THREE.WebGLRenderer, scene: THREE.Scene
     faceCam.position.copy(headWorldPos).addScaledVector(forward, 0.65).add(new THREE.Vector3(0, 0.03, 0));
     faceCam.lookAt(headWorldPos.x, headWorldPos.y + 0.01, headWorldPos.z);
 
-    // 📸 撮影専用ライティング (光量を抑え、斜め上から当てて自然な陰影と立体感を演出)
-    // 1. メインライト (右斜め前方・やや上方からのやわらかな光: 強度 0.8)
-    const keyLight = new THREE.DirectionalLight(0xfffaea, 0.8);
-    keyLight.position.copy(headWorldPos)
-      .addScaledVector(forward, 0.6)
-      .addScaledVector(right, 0.45)
-      .add(new THREE.Vector3(0, 0.35, 0));
+    // 📸 撮影専用スタジオライティング (キャラから見て斜め前・上から主光線を強力に当てて顔の凹凸と陰影を鮮明に表現)
+    // 1. 環境光 (全体のベース。凹凸の陰影が消えないよう 0.2 に抑えてコントラストを確保)
+    const ambLight = new THREE.AmbientLight(0xffffff, 0.2);
+    captureScene.add(ambLight);
+    disposables.push(ambLight);
+
+    // 2. メインキーライト (キャラから見て「右斜め前・上」から顔全体を照らす主光源: 強度 2.4)
+    // キャラクターの正面(forward)＋右(right)＋頭上(up)の合成ベクトルから照射
+    const keyDir = new THREE.Vector3()
+      .addScaledVector(forward, 0.9)
+      .addScaledVector(right, 0.65)
+      .add(new THREE.Vector3(0, 1.2, 0))
+      .normalize();
+
+    const keyLight = new THREE.DirectionalLight(0xfffaee, 2.4);
+    keyLight.position.copy(headWorldPos).addScaledVector(keyDir, 2.2);
     keyLight.target.position.copy(headWorldPos);
-    lightsToAdd.push(keyLight, keyLight.target);
+    captureScene.add(keyLight);
+    captureScene.add(keyLight.target);
     disposables.push(keyLight);
 
-    // 2. 補助フィルライト (反対側からのごく淡い光で、陰影を残しつつ暗部の輪郭を保持: 強度 0.2)
-    const fillLight = new THREE.DirectionalLight(0xe2e8f0, 0.2);
-    fillLight.position.copy(headWorldPos)
-      .addScaledVector(forward, 0.5)
-      .addScaledVector(right, -0.4)
-      .add(new THREE.Vector3(0, 0.1, 0));
+    // 3. 補助フィルライト (左前方からのごく淡い光で暗部の黒つぶれだけを防止: 強度 0.2)
+    const fillDir = new THREE.Vector3()
+      .addScaledVector(forward, 0.7)
+      .addScaledVector(right, -0.6)
+      .add(new THREE.Vector3(0, 0.5, 0))
+      .normalize();
+
+    const fillLight = new THREE.DirectionalLight(0xdce7f5, 0.2);
+    fillLight.position.copy(headWorldPos).addScaledVector(fillDir, 1.8);
     fillLight.target.position.copy(headWorldPos);
-    lightsToAdd.push(fillLight, fillLight.target);
+    captureScene.add(fillLight);
+    captureScene.add(fillLight.target);
     disposables.push(fillLight);
 
-    // 一時的にシーンへ照明を追加
-    lightsToAdd.forEach((obj) => scene.add(obj));
+    // VRMモデルとライトの姿勢・行列を更新
+    vrm.update(0.016);
+    captureScene.updateMatrixWorld(true);
 
-    // 撮影時だけ背景を無効化して水色の背景色の写り込みを防ぐ
-    const prevBackground = scene.background;
-    scene.background = null;
-
+    // レンダリング実行
     const prevTarget = renderer.getRenderTarget();
     const prevClearColor = new THREE.Color();
     const prevClearAlpha = renderer.getClearAlpha();
     renderer.getClearColor(prevClearColor);
 
     renderer.setRenderTarget(target);
-    renderer.setClearColor(0xf0f0f0, 1); // 白系ニュートラル背景（水色帯を防ぐ）
+    renderer.setClearColor(0xf0f0f0, 1);
     renderer.clear();
-    renderer.render(scene, faceCam);
+    renderer.render(captureScene, faceCam);
     renderer.setRenderTarget(prevTarget);
     renderer.setClearColor(prevClearColor, prevClearAlpha); // クリアカラーを元に戻す
 
-    // 背景を元に戻す
-    scene.background = prevBackground;
-
     const pixelBuffer = new Uint8Array(width * height * 4);
     renderer.readRenderTargetPixels(target, 0, 0, width, height, pixelBuffer);
-    target.dispose();
 
     // 上下反転補正して Canvas から DataURL を生成
     const canvas = document.createElement('canvas');
@@ -130,8 +148,9 @@ export function captureVRMFace(renderer: THREE.WebGLRenderer, scene: THREE.Scene
     console.warn('VRM顔キャプチャに失敗しました:', err);
     return '';
   } finally {
-    // 撮影完了後に専用ライトを確実にシーンから撤去・破棄
-    lightsToAdd.forEach((obj) => scene.remove(obj));
+    // 撮影完了後、VRMモデルを必ず元のシーンへ戻し、リソースを解放
+    originalParent.add(vrm.scene);
+    vrm.scene.updateMatrixWorld(true);
     disposables.forEach((d) => d.dispose());
   }
 }
@@ -156,6 +175,125 @@ export function createAvatarThumbnail(dataUrl: string, size = 64): Promise<strin
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
   });
+}
+
+// テクスチャ画像またはマテリアルから代表色を抽出するヘルパー
+export function sampleTextureColor(mat: THREE.Material): string | null {
+  const m = mat as any;
+  if (m.map && m.map.image) {
+    try {
+      const img = m.map.image;
+      const canvas = document.createElement('canvas');
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, 16, 16);
+        const data = ctx.getImageData(0, 0, 16, 16).data;
+        let rSum = 0, gSum = 0, bSum = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const a = data[i + 3];
+          if (a > 100) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            // 完全な白（境界や未マッピング領域）を除外
+            if (!(r > 240 && g > 240 && b > 240)) {
+              rSum += r;
+              gSum += g;
+              bSum += b;
+              count++;
+            }
+          }
+        }
+        if (count > 0) {
+          const hexR = Math.round(rSum / count).toString(16).padStart(2, '0');
+          const hexG = Math.round(gSum / count).toString(16).padStart(2, '0');
+          const hexB = Math.round(bSum / count).toString(16).padStart(2, '0');
+          return `#${hexR}${hexG}${hexB}`;
+        }
+      }
+    } catch {
+      // CORS保護等で読めない場合はスキップ
+    }
+  }
+
+  // テクスチャがない場合、mat.color が白以外ならそれを採用
+  if (m.color && (m.color.r < 0.95 || m.color.g < 0.95 || m.color.b < 0.95)) {
+    return '#' + m.color.getHexString();
+  }
+  return null;
+}
+
+// 撮影された顔写真から頭部(髪)・中央(肌)・下部(服)の色をサンプリング
+export function sampleFaceCaptureColors(dataUrl: string): Promise<{ hair?: string; skin?: string; clothing?: string }> {
+  return new Promise((resolve) => {
+    if (!dataUrl) return resolve({});
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return resolve({});
+
+        ctx.drawImage(img, 0, 0, 64, 64);
+
+        const sampleArea = (sx: number, sy: number, sw: number, sh: number): string | null => {
+          const data = ctx.getImageData(sx, sy, sw, sh).data;
+          let rSum = 0, gSum = 0, bSum = 0, count = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const a = data[i + 3];
+            if (a > 100) {
+              const r = data[i];
+              const g = data[i + 1];
+              const b = data[i + 2];
+              // 撮影背景色（#f0f0f0前後）や完全な白・透明を除外
+              const isBg = r > 235 && g > 235 && b > 235;
+              if (!isBg) {
+                rSum += r;
+                gSum += g;
+                bSum += b;
+                count++;
+              }
+            }
+          }
+          if (count > 0) {
+            const hexR = Math.round(rSum / count).toString(16).padStart(2, '0');
+            const hexG = Math.round(gSum / count).toString(16).padStart(2, '0');
+            const hexB = Math.round(bSum / count).toString(16).padStart(2, '0');
+            return `#${hexR}${hexG}${hexB}`;
+          }
+          return null;
+        };
+
+        // 髪: 上部中央 (X: 20〜44, Y: 4〜22)
+        const hair = sampleArea(20, 4, 24, 18);
+        // 肌: 顔中央 (X: 22〜42, Y: 24〜40)
+        const skin = sampleArea(22, 24, 20, 16);
+        // 服: 下部 (X: 16〜48, Y: 48〜62)
+        const clothing = sampleArea(16, 48, 32, 14);
+
+        resolve({ hair: hair || undefined, skin: skin || undefined, clothing: clothing || undefined });
+      } catch {
+        resolve({});
+      }
+    };
+    img.onerror = () => resolve({});
+    img.src = dataUrl;
+  });
+}
+
+// 色が真っ白・薄すぎないか検証するガード関数
+export function isColorTooWhiteOrInvalid(hex?: string | null): boolean {
+  if (!hex) return true;
+  const h = hex.replace('#', '');
+  if (h.length !== 6) return true;
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return r > 235 && g > 235 && b > 235;
 }
 
 // ============================================================================
@@ -280,6 +418,13 @@ export class VRMAvatarController {
   public rotationY = 0;
   public currentState: AvatarState = 'idle';
 
+  // VRM読み込み前の自キャラ用ボックスマン
+  public boxmanGroup = new THREE.Group();
+  private leftArm: THREE.Mesh;
+  private rightArm: THREE.Mesh;
+  private body: THREE.Mesh;
+  private head: THREE.Mesh;
+
   private moveSpeed = 5.5;
   private walkTime = 0;
   private actionTimer = 0;
@@ -288,7 +433,40 @@ export class VRMAvatarController {
   private blinkTimer = 0;
   private isBlinking = false;
 
-  constructor(private scene: THREE.Scene) {}
+  constructor(private scene: THREE.Scene) {
+    // 自キャラ用ボックスマンの生成 (VRM読み込み前の初期アバター)
+    const bodyGeo = new THREE.BoxGeometry(0.5, 0.7, 0.35);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4 });
+    this.body = new THREE.Mesh(bodyGeo, bodyMat);
+    this.body.position.y = 0.5;
+    this.body.castShadow = true;
+    this.body.receiveShadow = true;
+    this.boxmanGroup.add(this.body);
+
+    const headGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.3 });
+    this.head = new THREE.Mesh(headGeo, headMat);
+    this.head.position.y = 1.05;
+    this.head.castShadow = true;
+    this.head.receiveShadow = true;
+    this.boxmanGroup.add(this.head);
+
+    const armGeo = new THREE.BoxGeometry(0.15, 0.5, 0.15);
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.4 });
+
+    this.leftArm = new THREE.Mesh(armGeo, armMat.clone());
+    this.leftArm.position.set(-0.35, 0.5, 0);
+    this.leftArm.castShadow = true;
+    this.boxmanGroup.add(this.leftArm);
+
+    this.rightArm = new THREE.Mesh(armGeo, armMat.clone());
+    this.rightArm.position.set(0.35, 0.5, 0);
+    this.rightArm.castShadow = true;
+    this.boxmanGroup.add(this.rightArm);
+
+    this.boxmanGroup.position.copy(this.position);
+    this.scene.add(this.boxmanGroup);
+  }
 
   public async loadVRMFromUrl(url: string, onProgress?: (percent: number) => void): Promise<VRM | null> {
     const loader = new GLTFLoader();
@@ -322,6 +500,9 @@ export class VRMAvatarController {
           this.vrm = vrm;
           this.scene.add(vrm.scene);
           vrm.scene.position.copy(this.position);
+          this.boxmanGroup.visible = false; // VRMが読み込まれたのでボックスマンを隠す
+          this.boxmanGroup.traverse((c) => { c.visible = false; });
+          this.boxmanGroup.position.set(0, -999, 0); // 地下に退避
           
           // ロード直後から両腕を自然に下ろした立ちポーズを適用
           this.applyIdlePose(1.0);
@@ -427,12 +608,36 @@ export class VRMAvatarController {
     }
 
     if (this.vrm) {
+      this.boxmanGroup.visible = false;
       this.vrm.scene.position.copy(this.position);
       this.vrm.scene.rotation.y = this.rotationY;
 
       this.animateHumanoidBones(delta, hasInput);
       this.animateExpressions(delta);
       this.vrm.update(delta);
+    } else {
+      // VRM読み込み前の自キャラボックスマンのアニメーション
+      this.boxmanGroup.visible = true;
+      this.boxmanGroup.position.copy(this.position);
+      this.boxmanGroup.rotation.y = this.rotationY;
+
+      if (hasInput) {
+        this.walkTime += delta * 10;
+        const angle = Math.sin(this.walkTime) * 0.6;
+        this.leftArm.rotation.x = angle;
+        this.rightArm.rotation.x = -angle;
+        this.boxmanGroup.position.y = this.position.y + Math.abs(Math.sin(this.walkTime * 2)) * 0.08;
+      } else {
+        this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.2);
+        this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.2);
+      }
+
+      // 採掘・建築アクション時は右腕を大きくスイング
+      if (this.currentState === 'mining' || this.currentState === 'building') {
+        const progress = 1.0 - Math.max(0, this.actionTimer / this.actionDuration);
+        const swingAngle = Math.sin(progress * Math.PI) * 1.5;
+        this.rightArm.rotation.x = -swingAngle;
+      }
     }
   }
 
@@ -837,10 +1042,10 @@ export class RemotePlayerRenderer {
     this.rightArm.position.set(0.35, 0.5, 0);
     this.group.add(this.rightArm);
 
-    // 1. ネームプレート（名前 ＋ 🐱認証バッジ / 👤ゲストバッジ）
+    // 1. ネームプレート（名前 ＋ 🐱認証バッジ / 👤ゲストバッジ: 画面ピクセル連動スケーリング）
     this.nameCanvas = document.createElement('canvas');
-    this.nameCanvas.width = 384;
-    this.nameCanvas.height = 80;
+    this.nameCanvas.width = 512;
+    this.nameCanvas.height = 128;
     this.nameCtx = this.nameCanvas.getContext('2d');
 
     const nameTexture = new THREE.CanvasTexture(this.nameCanvas);
@@ -848,9 +1053,8 @@ export class RemotePlayerRenderer {
     this.nameSprite = new THREE.Sprite(nameMat);
     this.nameSprite.renderOrder = 998;
     this.nameSprite.position.set(0, 1.55, 0);
-    this.nameSprite.scale.set(1.9, 0.4, 1);
     this.group.add(this.nameSprite);
-    this.updateNamePlate(name, authType, userHash);
+    this.renderNamePlate(2.25);
 
     // 2. スピーチバブル
     this.bubbleCanvas = document.createElement('canvas');
@@ -863,52 +1067,85 @@ export class RemotePlayerRenderer {
     this.bubbleSprite = new THREE.Sprite(bubbleMat);
     this.bubbleSprite.renderOrder = 999;
     this.bubbleSprite.position.set(0, 2.15, 0);
-    this.bubbleSprite.scale.set(2.6, 0.65, 1);
     this.bubbleSprite.visible = false;
     this.group.add(this.bubbleSprite);
   }
 
   // VRM由来の配色をボックスマンに適用 (hair→頭, skin→腕, clothing→胴体)
   public setColors(hair: string, skin: string, clothing: string): void {
-    (this.head.material as THREE.MeshStandardMaterial).color.set(hair);
-    (this.body.material as THREE.MeshStandardMaterial).color.set(clothing);
-    (this.leftArm.material as THREE.MeshStandardMaterial).color.set(skin);
-    (this.rightArm.material as THREE.MeshStandardMaterial).color.set(skin);
+    const headMat = this.head.material as THREE.MeshStandardMaterial;
+    const bodyMat = this.body.material as THREE.MeshStandardMaterial;
+    const lArmMat = this.leftArm.material as THREE.MeshStandardMaterial;
+    const rArmMat = this.rightArm.material as THREE.MeshStandardMaterial;
+    if (headMat) { headMat.color.set(hair); headMat.needsUpdate = true; }
+    if (bodyMat) { bodyMat.color.set(clothing); bodyMat.needsUpdate = true; }
+    if (lArmMat) { lArmMat.color.set(skin); lArmMat.needsUpdate = true; }
+    if (rArmMat) { rArmMat.color.set(skin); rArmMat.needsUpdate = true; }
   }
 
   public updateNamePlate(name: string, authType = 'guest', userHash = '~guest'): void {
     this.name = name;
     this.authType = authType;
     this.userHash = userHash;
-    if (!this.nameCtx) return;
-
-    this.nameCtx.clearRect(0, 0, 384, 80);
-    this.nameCtx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-    this.nameCtx.strokeStyle = authType === 'github' ? '#10b981' : '#64748b';
-    this.nameCtx.lineWidth = 3;
-    this.nameCtx.roundRect(8, 8, 368, 64, 14);
-    this.nameCtx.fill();
-    this.nameCtx.stroke();
-
-    this.nameCtx.fillStyle = '#ffffff';
-    this.nameCtx.font = 'bold 22px sans-serif';
-    this.nameCtx.textAlign = 'left';
-    this.nameCtx.textBaseline = 'middle';
-    const trimmedName = name.length > 10 ? name.substring(0, 10) + '..' : name;
-    this.nameCtx.fillText(trimmedName, 24, 40);
-
-    // ハッシュバッジ描画
-    const badgeText = authType === 'github' ? `🐱${userHash}` : `👤${userHash}`;
-    this.nameCtx.fillStyle = authType === 'github' ? '#6ee7b7' : '#cbd5e1';
-    this.nameCtx.font = '17px monospace';
-    this.nameCtx.textAlign = 'right';
-    this.nameCtx.fillText(badgeText, 360, 40);
-
-    this.nameSprite.material.map!.needsUpdate = true;
+    this.renderNamePlate(this.currentZoom);
   }
 
   public setAuthBadge(authType: string, userHash: string): void {
     this.updateNamePlate(this.name, authType, userHash);
+  }
+
+  // 画面ピクセル基準でのネームプレート描画 (ズーム拡縮の影響を受けにくく常にしっかり読める大きさを維持)
+  public renderNamePlate(cameraZoom = 2.25): void {
+    if (!this.nameCtx) return;
+
+    this.nameCtx.clearRect(0, 0, 512, 128);
+
+    const viewHeight = window.innerHeight || 800;
+    const unitsPerPixel = 50 / (cameraZoom * viewHeight);
+
+    const isGh = this.authType === 'github';
+
+    // 背景角丸枠 (ダークガラス＋認証カラー境界線)
+    this.nameCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    this.nameCtx.strokeStyle = isGh ? '#10b981' : '#38bdf8';
+    this.nameCtx.lineWidth = 6;
+    this.nameCtx.beginPath();
+    this.nameCtx.roundRect(12, 16, 488, 96, 26);
+    this.nameCtx.fill();
+    this.nameCtx.stroke();
+
+    // プレイヤー名 (大きめの太字フォント)
+    this.nameCtx.fillStyle = '#ffffff';
+    this.nameCtx.font = 'bold 34px sans-serif';
+    this.nameCtx.textAlign = 'left';
+    this.nameCtx.textBaseline = 'middle';
+    const icon = isGh ? '🐱' : '👤';
+    const trimmedName = this.name.length > 8 ? this.name.substring(0, 8) + '..' : this.name;
+    this.nameCtx.fillText(`${icon} ${trimmedName}`, 32, 64);
+
+    // ハッシュバッジ (右寄せで角丸ピル背景付き)
+    const hashText = this.userHash || '~guest';
+    this.nameCtx.font = 'bold 26px monospace';
+    const hashWidth = this.nameCtx.measureText(hashText).width;
+    
+    // ハッシュ用小バッジ背景
+    this.nameCtx.fillStyle = isGh ? 'rgba(16, 185, 129, 0.25)' : 'rgba(56, 189, 248, 0.2)';
+    this.nameCtx.beginPath();
+    this.nameCtx.roundRect(476 - hashWidth - 20, 36, hashWidth + 24, 56, 12);
+    this.nameCtx.fill();
+
+    // ハッシュ文字
+    this.nameCtx.fillStyle = isGh ? '#6ee7b7' : '#7dd3fc';
+    this.nameCtx.textAlign = 'right';
+    this.nameCtx.fillText(hashText, 476 - 8, 64);
+
+    this.nameSprite.material.map!.needsUpdate = true;
+
+    // 画面上で横 260px × 縦 65px の十分な視認性を常に確保
+    const targetW = 260 * unitsPerPixel;
+    const targetH = 65 * unitsPerPixel;
+    this.nameSprite.scale.set(targetW, targetH, 1);
+    this.nameSprite.position.set(0, 1.45 + targetH / 2, 0);
   }
 
   private renderBubbleContent(): void {
@@ -920,6 +1157,10 @@ export class RemotePlayerRenderer {
     const viewHeight = window.innerHeight || 800;
     const unitsPerPixel = 50 / (this.currentZoom * viewHeight);
 
+    // ネームプレートのトップ高さを計算して被らないように配置
+    const namePlateH = 65 * unitsPerPixel;
+    const namePlateTop = 1.45 + namePlateH + 12 * unitsPerPixel;
+
     if (isCompact) {
       // 縮小時: 画面上で 160px × 46px のコンパクトピル
       const targetW = 160 * unitsPerPixel;
@@ -928,6 +1169,7 @@ export class RemotePlayerRenderer {
       this.bubbleCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
       this.bubbleCtx.strokeStyle = this.currentBubbleIsStamp ? '#f59e0b' : '#38bdf8';
       this.bubbleCtx.lineWidth = 5;
+      this.bubbleCtx.beginPath();
       this.bubbleCtx.roundRect(100, 16, 312, 96, 48);
       this.bubbleCtx.fill();
       this.bubbleCtx.stroke();
@@ -948,7 +1190,7 @@ export class RemotePlayerRenderer {
       }
 
       this.bubbleSprite.scale.set(targetW, targetH, 1);
-      this.bubbleSprite.position.set(0, 1.45 + targetH / 2 + 12 * unitsPerPixel, 0);
+      this.bubbleSprite.position.set(0, namePlateTop + targetH / 2, 0);
     } else {
       // 通常時: 画面上で 320px × 80px のしっかり読めるフルサイズ吹き出し
       const targetW = 320 * unitsPerPixel;
@@ -957,6 +1199,7 @@ export class RemotePlayerRenderer {
       this.bubbleCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
       this.bubbleCtx.strokeStyle = this.currentBubbleIsStamp ? '#f59e0b' : '#38bdf8';
       this.bubbleCtx.lineWidth = 5;
+      this.bubbleCtx.beginPath();
       this.bubbleCtx.roundRect(10, 10, 492, 108, 22);
       this.bubbleCtx.fill();
       this.bubbleCtx.stroke();
@@ -976,7 +1219,7 @@ export class RemotePlayerRenderer {
       }
 
       this.bubbleSprite.scale.set(targetW, targetH, 1);
-      this.bubbleSprite.position.set(0, 1.45 + targetH / 2 + 15 * unitsPerPixel, 0);
+      this.bubbleSprite.position.set(0, namePlateTop + targetH / 2, 0);
     }
 
     this.bubbleSprite.material.map!.needsUpdate = true;
@@ -1008,13 +1251,19 @@ export class RemotePlayerRenderer {
       this.group.position.y = THREE.MathUtils.lerp(this.group.position.y, currentGroundY, 0.2);
     }
 
+    // ズーム変更時、ネームプレートおよび吹き出しのピクセルサイズを連動追従
+    if (Math.abs(this.currentZoom - cameraZoom) > 0.04) {
+      this.currentZoom = cameraZoom;
+      this.renderNamePlate(cameraZoom);
+      if (this.bubbleTimer > 0) {
+        this.renderBubbleContent();
+      }
+    }
+
     if (this.bubbleTimer > 0) {
       this.bubbleTimer -= delta;
       if (this.bubbleTimer <= 0) {
         this.bubbleSprite.visible = false;
-      } else if (Math.abs(this.currentZoom - cameraZoom) > 0.04) {
-        this.currentZoom = cameraZoom;
-        this.renderBubbleContent();
       }
     }
   }
@@ -1025,7 +1274,7 @@ export class RemotePlayerRenderer {
 // ============================================================================
 export class NPCRenderer {
   public group = new THREE.Group();
-  public targetPos = new THREE.Vector3(2, 1.5, 2);
+  public targetPos = new THREE.Vector3(0, 0.5, -4);
   private walkTime = 0;
   private idleTime = 0;
   private speechSprite: THREE.Sprite;
@@ -1505,6 +1754,50 @@ export class NetworkController {
         onPlayerAvatar?.(data);
       });
 
+      // 1. 既存プレイヤーの一括同期メッセージ (参加直後に相手のボックスマン・座標・色を一括復元)
+      this.room.onMessage('existing_players', (data: { players: any[] }) => {
+        data.players.forEach((p) => {
+          if (p.id !== this.room?.sessionId) {
+            onPlayerJoin(p.id, p.name, p.x, p.y, p.z, p.authType, p.userHash);
+            onPlayerMove(p.id, p.x, p.y, p.z, p.rotationY || 0);
+            if (p.colors && onPlayerColors) {
+              onPlayerColors({ id: p.id, ...p.colors });
+            }
+            if (p.avatarUrl && onPlayerAvatar) {
+              onPlayerAvatar({ id: p.id, dataUrl: p.avatarUrl });
+            }
+          }
+        });
+      });
+
+      // 2. 新プレイヤー参加メッセージ (相手が参加してきた瞬間にボックスマンを即座に出現)
+      this.room.onMessage('player_joined', (p: any) => {
+        if (p.id !== this.room?.sessionId) {
+          onPlayerJoin(p.id, p.name, p.x, p.y, p.z, p.authType, p.userHash);
+          onPlayerMove(p.id, p.x, p.y, p.z, p.rotationY || 0);
+          if (p.colors && onPlayerColors) {
+            onPlayerColors({ id: p.id, ...p.colors });
+          }
+          if (p.avatarUrl && onPlayerAvatar) {
+            onPlayerAvatar({ id: p.id, dataUrl: p.avatarUrl });
+          }
+        }
+      });
+
+      // 3. プレイヤー移動メッセージ (リアルタイム位置同期)
+      this.room.onMessage('player_moved', (data: { id: string; x: number; y: number; z: number; rotationY: number }) => {
+        if (data.id !== this.room?.sessionId) {
+          onPlayerMove(data.id, data.x, data.y, data.z, data.rotationY || 0);
+        }
+      });
+
+      // 4. プレイヤー退出メッセージ
+      this.room.onMessage('player_left', (data: { id: string }) => {
+        if (data.id !== this.room?.sessionId) {
+          onPlayerLeave(data.id);
+        }
+      });
+
       this.room.onMessage('auth_init', (data: { userHash: string; authType: string; githubUsername: string; name: string }) => {
         onAuthInit?.(data);
       });
@@ -1616,6 +1909,7 @@ export class VoxelVRMApp {
   private vrmModelTitle = 'Sample VRM';
   private vrmModelAuthor = 'Pixiv';
   private isProfileModalOpen = false;
+  private selectedMiniPlayerId: string | null = null; // 簡易詳細小窓で選択中のプレイヤー ('self' または sessionId)
 
   // リモートプレイヤーの認証情報マップ (sessionId -> { authType, userHash, githubUsername })
   private remotePlayerAuth = new Map<string, { authType: string; userHash: string; githubUsername?: string }>();
@@ -1665,9 +1959,11 @@ export class VoxelVRMApp {
   private lastMouseX = 0;
   private lastMouseY = 0;
   private lastRotateMouseX = 0;
+  private isShiftViewMoving = false; // 編集モード時のShift視点移動フラグ
 
   // キー入力
   private keys: { [key: string]: boolean } = {};
+  private wasMovingLastFrame = false;
 
   constructor() {
     const container = document.getElementById('canvas-container') || document.body;
@@ -1688,9 +1984,9 @@ export class VoxelVRMApp {
     this.network = new NetworkController();
 
     this.npcRenderer = new NPCRenderer('お手伝いピコ');
-    const initNpcY = this.world.getGroundHeight(2, 2);
-    this.npcRenderer.group.position.set(2, initNpcY, 2);
-    this.npcRenderer.targetPos.set(2, initNpcY, 2);
+    const initNpcY = this.world.getGroundHeight(0, -4);
+    this.npcRenderer.group.position.set(0, initNpcY, -4);
+    this.npcRenderer.targetPos.set(0, initNpcY, -4);
     this.scene.add(this.npcRenderer.group);
 
     // 黄色枠カーソル
@@ -1715,6 +2011,7 @@ export class VoxelVRMApp {
     this.setupDragAndDrop();
     this.setupUIHandlers();
     this.setupProfileModalUI();
+    this.setupMiniPlayerCardUI();
     this.setupChatUI();
 
     window.addEventListener('resize', () => {
@@ -1901,17 +2198,17 @@ export class VoxelVRMApp {
       this.isInitialSyncDone = true;
     }, 1000);
 
-    const sampleVrmUrl = 'https://pixiv.github.io/three-vrm/packages/three-vrm/examples/models/VRM1_Constraint_Sample.vrm';
-    try {
-      this.updateStatus('VRMアバター読み込み中...');
-      const vrm = await this.avatar.loadVRMFromUrl(sampleVrmUrl);
-      this.onAvatarModelLoaded(vrm);
-      this.updateStatus('🟢 準備完了: WASDで移動 / Eキーでワールド編集');
-    } catch {
-      this.updateStatus('🟡 VRM待機中: 手元の .vrm ファイルを画面へドラッグ＆ドロップしてください');
-    }
+    // 接続完了後、直ちに初期位置をサーバーへ通知（動かなくても相手に自分のボックスマンが出現）
+    this.network.sendPlayerMove(
+      this.avatar.position.x,
+      this.avatar.position.y,
+      this.avatar.position.z,
+      this.avatar.rotationY
+    );
 
+    // 直ちにアニメーションループを開始（VRM読み込み前はボックスマンで即座に操作可能）
     this.animate();
+    this.updateStatus('🟢 準備完了: WASDで移動 / Eキーで編集（手元の .vrm ファイルを画面へD&Dでアバター変更）');
   }
 
   // ワールド内プレイヤー一覧UI更新
@@ -1928,6 +2225,12 @@ export class VoxelVRMApp {
     // 1. 自分（ローカルプレイヤー）
     const selfItem = document.createElement('div');
     selfItem.className = 'player-item';
+    selfItem.title = 'クリックしてプレイヤー詳細を表示';
+    selfItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleMiniPlayerCard('self');
+    });
+
     const selfBadgeClass = this.myAuthType === 'github' ? 'auth-badge github' : 'auth-badge guest';
     const selfBadgeText = this.myAuthType === 'github' ? `🐱${this.myUserHash}` : `👤${this.myUserHash}`;
     const selfAvatarHtml = this.myAvatarFaceDataUrl
@@ -1955,6 +2258,12 @@ export class VoxelVRMApp {
 
       const pItem = document.createElement('div');
       pItem.className = 'player-item';
+      pItem.title = 'クリックしてプレイヤー詳細を表示';
+      pItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleMiniPlayerCard(id);
+      });
+
       pItem.innerHTML = `
         ${remoteAvatarHtml}
         <span class="player-name">${name}</span>
@@ -1962,6 +2271,145 @@ export class VoxelVRMApp {
       `;
       container.appendChild(pItem);
     });
+
+    // もし小窓が開いていれば情報も更新
+    if (this.selectedMiniPlayerId) {
+      this.updateMiniPlayerCardContent();
+    }
+  }
+
+  // プレイヤー簡易詳細小窓の開閉トグル
+  private toggleMiniPlayerCard(id: string): void {
+    if (this.selectedMiniPlayerId === id) {
+      this.closeMiniPlayerCard();
+    } else {
+      this.openMiniPlayerCard(id);
+    }
+  }
+
+  // プレイヤー簡易詳細小窓を開く
+  private openMiniPlayerCard(id: string): void {
+    this.selectedMiniPlayerId = id;
+    const card = document.getElementById('player-mini-card');
+    if (!card) return;
+
+    card.style.display = 'block';
+    this.sounds.playSelect();
+    this.updateMiniPlayerCardContent();
+  }
+
+  // プレイヤー簡易詳細小窓を閉じる
+  private closeMiniPlayerCard(): void {
+    this.selectedMiniPlayerId = null;
+    const card = document.getElementById('player-mini-card');
+    if (card) {
+      card.style.display = 'none';
+    }
+  }
+
+  // プレイヤー簡易詳細小窓の内容更新
+  private updateMiniPlayerCardContent(): void {
+    if (!this.selectedMiniPlayerId) return;
+
+    const isSelf = this.selectedMiniPlayerId === 'self';
+    const avatarImg = document.getElementById('mini-player-avatar-img') as HTMLImageElement | null;
+    const placeholder = document.getElementById('mini-player-avatar-placeholder');
+    const nameEl = document.getElementById('mini-player-name');
+    const roleBadge = document.getElementById('mini-player-role-badge');
+    const authBadge = document.getElementById('mini-player-auth-badge');
+    const coordsEl = document.getElementById('mini-player-coords');
+    const modelTypeEl = document.getElementById('mini-player-model-type');
+    const focusBtnText = document.getElementById('btn-mini-focus-text');
+    const mentionBtnText = document.getElementById('btn-mini-mention-text');
+    const mentionBtn = document.getElementById('btn-mini-mention');
+
+    if (isSelf) {
+      // --- 自分自身の情報 ---
+      if (nameEl) nameEl.innerText = this.myPlayerName;
+      if (roleBadge) {
+        roleBadge.style.display = 'inline-block';
+        roleBadge.className = 'player-badge self';
+        roleBadge.innerText = 'YOU';
+      }
+
+      if (authBadge) {
+        const isGh = this.myAuthType === 'github';
+        authBadge.className = isGh ? 'auth-badge github' : 'auth-badge guest';
+        authBadge.innerText = isGh ? `🐱${this.myUserHash} (@${this.myGithubUsername})` : `👤${this.myUserHash}`;
+      }
+
+      if (avatarImg && placeholder) {
+        if (this.myAvatarFaceDataUrl) {
+          avatarImg.src = this.myAvatarFaceDataUrl;
+          avatarImg.style.display = 'block';
+          placeholder.style.display = 'none';
+        } else {
+          avatarImg.style.display = 'none';
+          placeholder.style.display = 'flex';
+        }
+      }
+
+      if (coordsEl) {
+        coordsEl.innerText = `X: ${this.avatar.position.x.toFixed(1)}, Y: ${this.avatar.position.y.toFixed(1)}, Z: ${this.avatar.position.z.toFixed(1)}`;
+      }
+
+      if (modelTypeEl) {
+        modelTypeEl.innerText = this.avatar.vrm ? (this.vrmModelTitle || 'VRMモデル') : 'ボックスマン';
+      }
+
+      if (focusBtnText) focusBtnText.innerText = '自キャラを探す';
+      if (mentionBtnText) mentionBtnText.innerText = '設定を開く';
+      if (mentionBtn) mentionBtn.style.display = 'flex';
+    } else {
+      // --- リモートプレイヤーの情報 ---
+      const rpId = this.selectedMiniPlayerId;
+      const name = this.remotePlayerNames.get(rpId) || 'プレイヤー';
+      const auth = this.remotePlayerAuth.get(rpId);
+      const isGh = auth?.authType === 'github';
+      const hash = auth?.userHash || '~guest';
+      const ghUser = auth?.githubUsername;
+      const avatarUrl = this.remotePlayerAvatars.get(rpId);
+      const rp = this.remotePlayers.get(rpId);
+
+      if (nameEl) nameEl.innerText = name;
+      if (roleBadge) {
+        roleBadge.style.display = 'inline-block';
+        roleBadge.className = 'player-badge';
+        roleBadge.innerText = 'ONLINE';
+      }
+
+      if (authBadge) {
+        authBadge.className = isGh ? 'auth-badge github' : 'auth-badge guest';
+        authBadge.innerText = isGh ? `🐱${hash}${ghUser ? ` (@${ghUser})` : ''}` : `👤${hash}`;
+      }
+
+      if (avatarImg && placeholder) {
+        if (avatarUrl) {
+          avatarImg.src = avatarUrl;
+          avatarImg.style.display = 'block';
+          placeholder.style.display = 'none';
+        } else {
+          avatarImg.style.display = 'none';
+          placeholder.style.display = 'flex';
+        }
+      }
+
+      if (coordsEl) {
+        if (rp) {
+          coordsEl.innerText = `X: ${rp.group.position.x.toFixed(1)}, Y: ${rp.group.position.y.toFixed(1)}, Z: ${rp.group.position.z.toFixed(1)}`;
+        } else {
+          coordsEl.innerText = 'オフライン';
+        }
+      }
+
+      if (modelTypeEl) {
+        modelTypeEl.innerText = 'ボックスマン (VRM配色)';
+      }
+
+      if (focusBtnText) focusBtnText.innerText = '視点を合わせる';
+      if (mentionBtnText) mentionBtnText.innerText = 'メンション';
+      if (mentionBtn) mentionBtn.style.display = 'flex';
+    }
   }
 
   // --- プロフィール保存・復元 & UI更新 ---
@@ -2089,44 +2537,79 @@ export class VoxelVRMApp {
       });
     }
 
-    // VRMマテリアルから代表色を抽出してサーバーへ送信
+    // VRMテクスチャおよび顔写真から代表色を抽出してサーバーへ送信
     // → 相手のボックスマンをVRM配色に変更するため
-    const extractedColors = this.extractVRMColors(vrm);
-    this.network.sendPlayerColors(extractedColors.hair, extractedColors.skin, extractedColors.clothing);
+    this.extractVRMColors(vrm, faceDataUrl).then((extractedColors) => {
+      console.log('🎨 [VRM Colors Sending to Server]:', extractedColors);
+      this.network.sendPlayerColors(extractedColors.hair, extractedColors.skin, extractedColors.clothing);
+    });
   }
 
-  // VRMの主要マテリアルから Hair / Skin / Clothing の代表色を16進文字列で抽出
-  private extractVRMColors(vrm: VRM): { hair: string; skin: string; clothing: string } {
-    const colors: { hair: THREE.Color | null; skin: THREE.Color | null; clothing: THREE.Color | null } = {
-      hair: null, skin: null, clothing: null
-    };
+  // VRMのテクスチャおよび顔写真から Hair / Skin / Clothing の代表色を抽出
+  private async extractVRMColors(vrm: VRM, faceDataUrl?: string): Promise<{ hair: string; skin: string; clothing: string }> {
+    let hairColor: string | null = null;
+    let skinColor: string | null = null;
+    let clothingColor: string | null = null;
 
+    // 1. VRMのメッシュ・マテリアルからテクスチャピクセルをサンプリング
     vrm.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       mats.forEach((mat: THREE.Material) => {
-        const m = mat as THREE.MeshStandardMaterial;
-        if (!m.color) return;
-        const name = (m.name || mesh.name || '').toLowerCase();
-        if (!colors.hair && (name.includes('hair') || name.includes('髪'))) {
-          colors.hair = m.color.clone();
-        } else if (!colors.skin && (name.includes('face') || name.includes('skin') || name.includes('顔') || name.includes('肌'))) {
-          colors.skin = m.color.clone();
-        } else if (!colors.clothing && (name.includes('body') || name.includes('cloth') || name.includes('shirt') || name.includes('dress') || name.includes('服') || name.includes('上着'))) {
-          colors.clothing = m.color.clone();
+        const name = (mat.name || mesh.name || '').toLowerCase();
+
+        // 髪の判定
+        if (!hairColor && (name.includes('hair') || name.includes('髪') || name.includes('front') || name.includes('back') || name.includes('ponytail'))) {
+          const sampled = sampleTextureColor(mat);
+          if (sampled && !isColorTooWhiteOrInvalid(sampled)) {
+            hairColor = sampled;
+          }
+        }
+        // 肌・顔の判定
+        else if (!skinColor && (name.includes('face') || name.includes('skin') || name.includes('顔') || name.includes('肌'))) {
+          const sampled = sampleTextureColor(mat);
+          if (sampled && !isColorTooWhiteOrInvalid(sampled)) {
+            skinColor = sampled;
+          }
+        }
+        // 服の判定
+        else if (!clothingColor && (name.includes('cloth') || name.includes('shirt') || name.includes('dress') || name.includes('suit') || name.includes('costume') || name.includes('jacket') || name.includes('tops') || name.includes('bottoms') || name.includes('pants') || name.includes('skirt') || name.includes('服') || name.includes('上着') || name.includes('衣装'))) {
+          const sampled = sampleTextureColor(mat);
+          if (sampled && !isColorTooWhiteOrInvalid(sampled)) {
+            clothingColor = sampled;
+          }
         }
       });
     });
 
-    const toHex = (c: THREE.Color | null, fallback: string) =>
-      c ? '#' + c.getHexString() : fallback;
+    // 2. テクスチャから取れなかった部分、または白飛びしている部分は撮影顔写真からサンプリング補完
+    if ((!hairColor || !skinColor || !clothingColor) && faceDataUrl) {
+      try {
+        const faceColors = await sampleFaceCaptureColors(faceDataUrl);
+        if (!hairColor && faceColors.hair && !isColorTooWhiteOrInvalid(faceColors.hair)) {
+          hairColor = faceColors.hair;
+        }
+        if (!skinColor && faceColors.skin && !isColorTooWhiteOrInvalid(faceColors.skin)) {
+          skinColor = faceColors.skin;
+        }
+        if (!clothingColor && faceColors.clothing && !isColorTooWhiteOrInvalid(faceColors.clothing)) {
+          clothingColor = faceColors.clothing;
+        }
+      } catch (e) {
+        console.warn('顔写真からの色抽出に失敗しました:', e);
+      }
+    }
 
-    return {
-      hair:     toHex(colors.hair,     '#1e293b'), // デフォルト: 暗めの黒髪
-      skin:     toHex(colors.skin,     '#fde68a'), // デフォルト: 明るい肌色
-      clothing: toHex(colors.clothing, '#3b82f6'), // デフォルト: 青いボディ
+    // 3. 最終フォールバック（視認性の高い自然な配色）
+    const result = {
+      hair:     hairColor && !isColorTooWhiteOrInvalid(hairColor) ? hairColor : '#2b1d14',     // ダークブラウン
+      skin:     skinColor && !isColorTooWhiteOrInvalid(skinColor) ? skinColor : '#fed7aa',     // 自然な肌色
+      clothing: clothingColor && !isColorTooWhiteOrInvalid(clothingColor) ? clothingColor : '#3b82f6', // クラシックブルー
     };
+
+    console.log('🎨 [VRM Color Extraction Result]:', result);
+    return result;
   }
 
   // --- 自分の頭上吹き出しシステム ---
@@ -2326,6 +2809,83 @@ export class VoxelVRMApp {
     openNewTabBtn?.addEventListener('click', () => {
       window.open(window.location.href, '_blank');
       this.sounds.playSelect();
+    });
+
+    // サンプルVRMの読み込みボタン
+    const loadSampleBtn = document.getElementById('btn-load-sample-vrm');
+    loadSampleBtn?.addEventListener('click', async () => {
+      this.updateStatus('VRMアバター読み込み中: Pixiv Sample VRM...');
+      const sampleVrmUrl = 'https://pixiv.github.io/three-vrm/packages/three-vrm/examples/models/VRM1_Constraint_Sample.vrm';
+      try {
+        const vrm = await this.avatar.loadVRMFromUrl(sampleVrmUrl);
+        this.onAvatarModelLoaded(vrm);
+        this.updateStatus('✅ サンプルVRMモデルを適用しました！');
+        this.sounds.playDoorbell();
+      } catch (err) {
+        console.error('サンプルVRMロードエラー:', err);
+        this.updateStatus('❌ サンプルVRMの読み込みに失敗しました');
+      }
+    });
+  }
+
+  // プレイヤー簡易詳細小窓のイベント登録
+  private setupMiniPlayerCardUI(): void {
+    const card = document.getElementById('player-mini-card');
+    const closeBtn = document.getElementById('btn-close-player-mini');
+    const focusBtn = document.getElementById('btn-mini-focus');
+    const mentionBtn = document.getElementById('btn-mini-mention');
+
+    // 閉じるボタン
+    closeBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeMiniPlayerCard();
+      this.sounds.playSelect();
+    });
+
+    // 小窓内クリックの3Dワールド誤操作貫通防止
+    card?.addEventListener('pointerdown', (e) => e.stopPropagation());
+    card?.addEventListener('click', (e) => e.stopPropagation());
+
+    // 視点フォーカスボタン
+    focusBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!this.selectedMiniPlayerId) return;
+
+      if (this.selectedMiniPlayerId === 'self') {
+        this.cameraSys.resetToAvatar();
+        this.sounds.playSelect();
+        this.updateStatus('🎯 カメラ視点を自キャラに戻しました');
+      } else {
+        const rp = this.remotePlayers.get(this.selectedMiniPlayerId);
+        if (rp) {
+          this.cameraSys.isFollowingAvatar = false;
+          this.cameraSys.targetPosition.copy(rp.group.position);
+          this.cameraSys.updateCameraPosition();
+          this.sounds.playNotice();
+          const name = this.remotePlayerNames.get(this.selectedMiniPlayerId) || '相手';
+          this.updateStatus(`🎯 ${name} にカメラを合わせました（WASDキーで自キャラに戻ります）`);
+        }
+      }
+    });
+
+    // メンション / 設定ボタン
+    mentionBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!this.selectedMiniPlayerId) return;
+
+      if (this.selectedMiniPlayerId === 'self') {
+        this.openProfileModal();
+      } else {
+        const name = this.remotePlayerNames.get(this.selectedMiniPlayerId);
+        if (name) {
+          const chatInput = document.getElementById('input-chat-text') as HTMLInputElement | null;
+          if (chatInput) {
+            chatInput.value = `@${name} ` + chatInput.value;
+            chatInput.focus();
+            this.sounds.playSelect();
+          }
+        }
+      }
     });
   }
 
@@ -2533,12 +3093,14 @@ export class VoxelVRMApp {
         if (e.key === 'Escape') {
           activeEl.blur();
           this.closeProfileModal();
+          this.closeMiniPlayerCard();
         }
         return;
       }
 
       if (e.key === 'Escape') {
         this.closeProfileModal();
+        this.closeMiniPlayerCard();
       }
 
       const key = e.key.toLowerCase();
@@ -2579,6 +3141,14 @@ export class VoxelVRMApp {
 
     // ポインターダウン (左/右ドラッグ・クリック開始)
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
+      // 編集モードの場合、Shiftキーが押されている時のみ視点移動、それ以外はブロック編集
+      const isShift = e.shiftKey;
+      if (this.isEditMode) {
+        this.isShiftViewMoving = isShift;
+      } else {
+        this.isShiftViewMoving = true; // 散策モード時は通常ドラッグで視点移動
+      }
+
       if (e.button === 0) {
         this.leftMouseDown = true;
         this.hasLeftDragged = false;
@@ -2600,12 +3170,15 @@ export class VoxelVRMApp {
       const dx = e.clientX - this.lastMouseX;
       const dy = e.clientY - this.lastMouseY;
 
+      // 編集モード時はShiftが押されている場合のみ視点移動を行う
+      const canMoveCamera = !this.isEditMode || (this.isEditMode && this.isShiftViewMoving);
+
       // 左ボタンドラッグ判定 (移動量5px超でパン操作発動)
       if (this.leftMouseDown) {
         if (!this.hasLeftDragged && Math.hypot(e.clientX - this.leftStartX, e.clientY - this.leftStartY) > 5) {
           this.hasLeftDragged = true;
         }
-        if (this.hasLeftDragged) {
+        if (this.hasLeftDragged && canMoveCamera) {
           this.cameraSys.pan(dx, dy);
         }
       }
@@ -2617,10 +3190,12 @@ export class VoxelVRMApp {
 
         if (Math.abs(diffX) >= rotateThreshold) {
           this.hasRightDragged = true;
-          // 右ドラッグで時計回り(視点右回転: direction = -1)、左ドラッグで反時計回り(direction = 1)
-          const direction = diffX > 0 ? -1 : 1;
-          this.cameraSys.rotateStep(direction);
-          this.sounds.playSelect();
+          if (canMoveCamera) {
+            // 右ドラッグで時計回り(視点右回転: direction = -1)、左ドラッグで反時計回り(direction = 1)
+            const direction = diffX > 0 ? -1 : 1;
+            this.cameraSys.rotateStep(direction);
+            this.sounds.playSelect();
+          }
           this.lastRotateMouseX = e.clientX;
         } else if (Math.hypot(e.clientX - this.rightStartX, e.clientY - this.rightStartY) > 5) {
           this.hasRightDragged = true;
@@ -2631,26 +3206,34 @@ export class VoxelVRMApp {
       this.lastMouseY = e.clientY;
     });
 
-    // ポインターアップ (短クリック配置 / 短クリック削除 / ドラッグ終了 & 45度吸着)
+    // ポインターアップ (クリック配置・削除 / ドラッグ終了 & 45度吸着)
     window.addEventListener('pointerup', (e) => {
       if (e.button === 0) {
         this.leftMouseDown = false;
-        // ドラッグしていない「短クリック」かつ「編集モード」なら配置処理を発火
-        if (!this.hasLeftDragged && this.isEditMode && this.selectedTarget) {
+        // 編集モードかつShift視点移動ではない場合、クリック操作を発火
+        if (this.isEditMode && !this.isShiftViewMoving && this.selectedTarget) {
           const { x, y, z, normal } = this.selectedTarget;
-          this.handlePlacement(x, y, z, normal);
+          if (this.currentTool === 'destroy') {
+            this.handleRemoval(x, y, z, normal);
+          } else {
+            this.handlePlacement(x, y, z, normal);
+          }
         }
         this.hasLeftDragged = false;
+        this.isShiftViewMoving = false;
       } else if (e.button === 2) {
         this.rightMouseDown = false;
-        this.cameraSys.snapToNearest45();
+        if (!this.isEditMode || this.isShiftViewMoving) {
+          this.cameraSys.snapToNearest45();
+        }
 
-        // ドラッグしていない「短クリック」かつ「編集モード」なら削除処理を発火
-        if (!this.hasRightDragged && this.isEditMode && this.selectedTarget) {
+        // 編集モードかつShift視点移動ではない場合、右クリックはいつでも直感的にブロック削除
+        if (this.isEditMode && !this.isShiftViewMoving && this.selectedTarget) {
           const { x, y, z, normal } = this.selectedTarget;
           this.handleRemoval(x, y, z, normal);
         }
         this.hasRightDragged = false;
+        this.isShiftViewMoving = false;
       }
     });
 
@@ -3112,7 +3695,7 @@ export class VoxelVRMApp {
 
   // --- レイキャスト & ゴーストプレビュー更新 ---
   private updateRaycastHover(): void {
-    if (!this.isEditMode || this.leftMouseDown || this.rightMouseDown) {
+    if (!this.isEditMode || this.isShiftViewMoving) {
       this.selectedTarget = null;
       this.cursorMesh.visible = false;
       this.ghostGroup.visible = false;
@@ -3253,7 +3836,8 @@ export class VoxelVRMApp {
     const groundY = this.world.getGroundHeight(this.avatar.position.x, this.avatar.position.z);
     this.avatar.update(delta, { screenX, screenY }, groundY, this.cameraSys);
 
-    if (screenX !== 0 || screenY !== 0) {
+    const isMoving = screenX !== 0 || screenY !== 0;
+    if (isMoving || this.wasMovingLastFrame) {
       this.network.sendPlayerMove(
         this.avatar.position.x,
         this.avatar.position.y,
@@ -3261,11 +3845,15 @@ export class VoxelVRMApp {
         this.avatar.rotationY
       );
     }
+    this.wasMovingLastFrame = isMoving;
 
     const currentCamZoom = this.cameraSys.camera.zoom;
 
     this.particles.update(delta);
-    this.remotePlayers.forEach((rp) => rp.update(delta, 0.5, currentCamZoom));
+    this.remotePlayers.forEach((rp) => {
+      const rpGroundY = this.world.getGroundHeight(rp.targetPos.x, rp.targetPos.z);
+      rp.update(delta, rpGroundY, currentCamZoom);
+    });
 
     // 自アバターの頭上吹き出し追従とズーム適応・タイマー減衰
     if (this.myBubbleSprite && this.myBubbleSprite.visible) {
@@ -3298,6 +3886,23 @@ export class VoxelVRMApp {
       const coordsEl = document.getElementById('modal-player-coords');
       if (coordsEl) {
         coordsEl.innerText = `X: ${this.avatar.position.x.toFixed(1)}, Y: ${this.avatar.position.y.toFixed(1)}, Z: ${this.avatar.position.z.toFixed(1)}`;
+      }
+    }
+
+    // プレイヤー簡易詳細小窓表示中の座標リアルタイム更新
+    if (this.selectedMiniPlayerId) {
+      const miniCoordsEl = document.getElementById('mini-player-coords');
+      if (miniCoordsEl) {
+        if (this.selectedMiniPlayerId === 'self') {
+          miniCoordsEl.innerText = `X: ${this.avatar.position.x.toFixed(1)}, Y: ${this.avatar.position.y.toFixed(1)}, Z: ${this.avatar.position.z.toFixed(1)}`;
+        } else {
+          const rp = this.remotePlayers.get(this.selectedMiniPlayerId);
+          if (rp) {
+            miniCoordsEl.innerText = `X: ${rp.group.position.x.toFixed(1)}, Y: ${rp.group.position.y.toFixed(1)}, Z: ${rp.group.position.z.toFixed(1)}`;
+          } else {
+            miniCoordsEl.innerText = 'オフライン';
+          }
+        }
       }
     }
 

@@ -119,9 +119,215 @@
       gap: 8px;
       font-size: 13px;
       color: #f1f5f9;
-      padding: 3px 6px;
+      padding: 4px 8px;
       border-radius: 6px;
       background: rgba(255, 255, 255, 0.04);
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      user-select: none;
+    }
+
+    .player-item:hover {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    .player-item:active {
+      transform: scale(0.98);
+    }
+
+    /* 👤 プレイヤー簡易詳細小窓 (非モーダル・プレイ継続可能) */
+    .player-mini-window {
+      position: fixed;
+      top: 16px;
+      left: 295px;
+      width: 280px;
+      padding: 12px 14px;
+      z-index: 1000;
+      pointer-events: auto;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 12px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(56, 189, 248, 0.15);
+      animation: slideInMini 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideInMini {
+      from {
+        opacity: 0;
+        transform: translateX(-8px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+    }
+
+    .mini-window-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .mini-window-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      letter-spacing: 0.5px;
+    }
+
+    .mini-window-close {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .mini-window-close:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .mini-profile-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .mini-avatar-wrap {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      position: relative;
+      flex-shrink: 0;
+      border: 2px solid rgba(56, 189, 248, 0.7);
+      background: #0f172a;
+      overflow: hidden;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+    }
+
+    .mini-player-avatar {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .mini-player-avatar-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      background: #1e293b;
+      color: #94a3b8;
+    }
+
+    .mini-profile-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .mini-name-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .mini-player-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: #f8fafc;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .mini-badge-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mini-detail-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 8px 10px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .mini-detail-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+
+    .mini-detail-label {
+      color: #94a3b8;
+    }
+
+    .mini-detail-val {
+      color: #f1f5f9;
+      font-family: monospace;
+      font-weight: 600;
+    }
+
+    .mini-action-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .mini-btn {
+      flex: 1;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+
+    .mini-btn-primary {
+      background: rgba(56, 189, 248, 0.2);
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    .mini-btn-primary:hover {
+      background: rgba(56, 189, 248, 0.35);
+      border-color: rgba(56, 189, 248, 0.6);
+      transform: translateY(-1px);
+    }
+
+    .mini-btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+    }
+
+    .mini-btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
     }
 
     .player-dot {
@@ -1007,6 +1213,53 @@
             </div>
           </div>
         </div>
+
+        <!-- 👤 プレイヤー簡易詳細小窓 (非モーダル・プレイ継続可能) -->
+        <div id="player-mini-card" class="player-mini-window" style="display: none;">
+          <div class="mini-window-header">
+            <span class="mini-window-title">👤 プレイヤー詳細</span>
+            <button id="btn-close-player-mini" class="mini-window-close" title="閉じる">✕</button>
+          </div>
+          <div class="mini-window-body">
+            <div class="mini-profile-main">
+              <div class="mini-avatar-wrap">
+                <img id="mini-player-avatar-img" class="mini-player-avatar" src="" alt="Avatar" style="display: none;" />
+                <div id="mini-player-avatar-placeholder" class="mini-player-avatar-placeholder">👤</div>
+              </div>
+              <div class="mini-profile-info">
+                <div class="mini-name-row">
+                  <span id="mini-player-name" class="mini-player-name">プレイヤー名</span>
+                  <span id="mini-player-role-badge" class="player-badge self" style="display: none;">YOU</span>
+                </div>
+                <div class="mini-badge-row">
+                  <span id="mini-player-auth-badge" class="auth-badge guest">👤~guest</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mini-detail-grid">
+              <div class="mini-detail-item">
+                <span class="mini-detail-label">📍 現在地</span>
+                <span id="mini-player-coords" class="mini-detail-val">X: 0.0, Y: 0.0, Z: 0.0</span>
+              </div>
+              <div class="mini-detail-item">
+                <span class="mini-detail-label">🎨 アバター</span>
+                <span id="mini-player-model-type" class="mini-detail-val">ボックスマン</span>
+              </div>
+            </div>
+
+            <div class="mini-action-buttons">
+              <button id="btn-mini-focus" class="mini-btn mini-btn-primary" title="このプレイヤーにカメラを合わせる">
+                <span>🎯</span>
+                <span id="btn-mini-focus-text">視点を合わせる</span>
+              </button>
+              <button id="btn-mini-mention" class="mini-btn mini-btn-secondary" title="チャットでメンション">
+                <span>💬</span>
+                <span id="btn-mini-mention-text">メンション</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Right Top: Actions Bar on Top + NPC Card Below (No more overlapping) -->
@@ -1066,10 +1319,10 @@
         <!-- 編集モード用ガイド (初期非表示) -->
         <div id="guide-edit" style="display: none;">
           <div class="guide-title edit">🛠️ ワールド編集モード</div>
-          <div><b>左クリック</b>: ボックス追加（配置）</div>
+          <div><b>左クリック</b>: ボックス配置（破壊ツール時は削除）</div>
           <div><b>右クリック</b>: ボックス削除（破壊）</div>
-          <div><b>左ドラッグ</b>: カメラ位置移動（パン）</div>
-          <div><b>右ドラッグ</b>: カメラ視点回転（左右）</div>
+          <div><span class="key-badge">Shift</span> + <b>左ドラッグ</b>: 視点移動（パン）</div>
+          <div><span class="key-badge">Shift</span> + <b>右ドラッグ</b>: 視点回転（左右45度）</div>
           <div><span class="key-badge">1</span>〜<span class="key-badge">6</span>: ブロック素材選択</div>
           <div><span class="key-badge">E</span> / 右上ボタン: <b>編集終了（散策へ）</b></div>
         </div>
@@ -1214,14 +1467,19 @@
 
         <!-- VRMモデル情報 -->
         <div class="modal-section">
-          <div class="modal-section-title">📦 VRMモデル情報</div>
+          <div class="modal-section-title">📦 アバター情報</div>
           <div class="modal-row">
             <span>モデル名:</span>
-            <span id="modal-vrm-title" class="modal-val">読み込み中...</span>
+            <span id="modal-vrm-title" class="modal-val">ボックスマン (デフォルト)</span>
           </div>
           <div class="modal-row">
             <span>作者:</span>
-            <span id="modal-vrm-author" class="modal-val">不明</span>
+            <span id="modal-vrm-author" class="modal-val">システム</span>
+          </div>
+          <div style="margin-top: 8px;">
+            <button id="btn-load-sample-vrm" class="chat-btn" style="font-size: 11px; padding: 5px 12px; background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+              📥 PixivサンプルVRMを試す
+            </button>
           </div>
         </div>
 

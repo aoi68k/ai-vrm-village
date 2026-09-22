@@ -205,6 +205,51 @@ export class VoxelGameRoom extends Room<GameWorldState> {
     this.playerColors.forEach((colors, pid) => {
       client.send('player_colors_broadcast', { id: pid, ...colors });
     });
+
+    // 1. 新規参加者へ既存の全プレイヤー情報を一括送信
+    const existingList: Array<{
+      id: string;
+      name: string;
+      x: number;
+      y: number;
+      z: number;
+      rotationY: number;
+      authType: string;
+      userHash: string;
+      avatarUrl: string;
+      colors: { hair: string; skin: string; clothing: string } | null;
+    }> = [];
+    this.state.players.forEach((p, pid) => {
+      if (pid !== client.sessionId) {
+        existingList.push({
+          id: pid,
+          name: p.name,
+          x: p.x,
+          y: p.y,
+          z: p.z,
+          rotationY: p.rotationY,
+          authType: p.authType,
+          userHash: p.userHash,
+          avatarUrl: this.playerAvatars.get(pid) || '',
+          colors: this.playerColors.get(pid) || null
+        });
+      }
+    });
+    client.send('existing_players', { players: existingList });
+
+    // 2. 既存の全プレイヤーへ新プレイヤーの参加を即座に通知
+    this.broadcast('player_joined', {
+      id: client.sessionId,
+      name: player.name,
+      x: player.x,
+      y: player.y,
+      z: player.z,
+      rotationY: player.rotationY,
+      authType: player.authType,
+      userHash: player.userHash,
+      avatarUrl: this.playerAvatars.get(client.sessionId) || '',
+      colors: this.playerColors.get(client.sessionId) || null
+    }, { except: client });
   }
 
   onLeave(client: Client) {
@@ -212,6 +257,9 @@ export class VoxelGameRoom extends Room<GameWorldState> {
     this.playerAvatars.delete(client.sessionId);
     this.playerColors.delete(client.sessionId);
     console.log(`🚪 [Leave] Player (${client.sessionId}) disconnected.`);
+
+    // プレイヤー退出を全員に通知
+    this.broadcast('player_left', { id: client.sessionId });
   }
 
   onDispose() {
@@ -266,11 +314,11 @@ export class VoxelGameRoom extends Room<GameWorldState> {
     const npc1 = new NPCState();
     npc1.id = "npc_pico";
     npc1.name = "お手伝いピコ";
-    npc1.x = 2;
+    npc1.x = 0;
     npc1.y = 0.5;
-    npc1.z = 2;
-    npc1.targetX = 2;
-    npc1.targetZ = 2;
+    npc1.z = -4;
+    npc1.targetX = 0;
+    npc1.targetZ = -4;
     npc1.currentTask = "プレイヤー探索中";
     npc1.statusMessage = "何か手伝えることはあるかな？";
     this.state.npcs.set(npc1.id, npc1);
@@ -286,6 +334,15 @@ export class VoxelGameRoom extends Room<GameWorldState> {
         if (data.y !== undefined) player.y = data.y;
         player.z = data.z;
         player.rotationY = data.rotationY ?? data.rotY ?? 0;
+
+        // 他プレイヤーへ即座に移動をブロードキャスト
+        this.broadcast("player_moved", {
+          id: client.sessionId,
+          x: player.x,
+          y: player.y,
+          z: player.z,
+          rotationY: player.rotationY
+        }, { except: client });
       }
     });
 
