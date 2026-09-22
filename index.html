@@ -48,12 +48,12 @@
 
     /* 共通グラスモフィズムカード */
     .glass-card {
-      background: rgba(18, 24, 38, 0.75);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      background: rgba(18, 24, 38, 0.78);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
       padding: 12px 16px;
       pointer-events: auto;
     }
@@ -106,8 +106,8 @@
 
     /* NPC ステータスカード */
     #npc-hud {
-      min-width: 280px;
-      max-width: 360px;
+      min-width: 260px;
+      max-width: 320px;
     }
 
     .npc-header {
@@ -151,13 +151,241 @@
       font-style: italic;
     }
 
+    /* 編集モードトグルボタン (右上) */
+    .edit-toggle-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 30px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      pointer-events: auto;
+    }
+
+    .edit-toggle-btn:hover {
+      background: rgba(56, 189, 248, 0.25);
+      border-color: #38bdf8;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(56, 189, 248, 0.4);
+    }
+
+    .edit-toggle-btn.active {
+      background: rgba(239, 68, 68, 0.25);
+      border-color: #ef4444;
+      color: #fca5a5;
+      box-shadow: 0 0 16px rgba(239, 68, 68, 0.5);
+    }
+
+    /* 右サイド・ワールド編集ドロワー */
+    #edit-drawer {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 320px;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-left: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transform: translateX(100%);
+      transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 20;
+      pointer-events: auto;
+      overflow-y: auto;
+    }
+
+    #edit-drawer.open {
+      transform: translateX(0);
+    }
+
+    .drawer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .drawer-header h2 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .icon-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: #cbd5e1;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: all 0.15s;
+    }
+
+    .icon-btn:hover {
+      background: rgba(239, 68, 68, 0.3);
+      color: #fff;
+    }
+
+    .drawer-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .drawer-section label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 6px;
+    }
+
+    .tool-btn, .brush-btn {
+      flex: 1;
+      padding: 8px 10px;
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      color: #cbd5e1;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+    }
+
+    .tool-btn:hover, .brush-btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: #38bdf8;
+      color: #fff;
+    }
+
+    .tool-btn.active, .brush-btn.active {
+      background: rgba(56, 189, 248, 0.3);
+      border-color: #38bdf8;
+      color: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+
+    /* 素材パレット グリッド */
+    .palette-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .palette-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 6px;
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .palette-item:hover {
+      border-color: #38bdf8;
+      background: rgba(51, 65, 85, 0.9);
+      transform: translateY(-2px);
+    }
+
+    .palette-item.active {
+      border-color: #facc15;
+      background: rgba(250, 204, 21, 0.2);
+      box-shadow: 0 0 10px rgba(250, 204, 21, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .item-color {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .item-name {
+      font-size: 11px;
+      color: #e2e8f0;
+      font-weight: 600;
+    }
+
+    /* スタンプ グリッド */
+    .stamp-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .stamp-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 10px 8px;
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      color: #e2e8f0;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .stamp-card:hover {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.2);
+      transform: translateY(-2px);
+    }
+
+    .stamp-card.active {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.25);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+
+    .stamp-icon {
+      font-size: 20px;
+    }
+
     /* 左下 操作ガイド */
     #controls-guide {
       align-self: flex-start;
       font-size: 12px;
       line-height: 1.6;
       color: #cbd5e1;
-      max-width: 260px;
+      max-width: 270px;
     }
 
     #controls-guide b {
@@ -174,7 +402,7 @@
       color: #38bdf8;
     }
 
-    /* 下部中央 ブロックパレット */
+    /* 下部中央 ミニパレット (通常時もクイック選択可能) */
     .bottom-center-bar {
       align-self: center;
       display: flex;
@@ -183,16 +411,16 @@
       gap: 8px;
     }
 
-    #block-palette {
+    #quick-palette {
       display: flex;
-      gap: 8px;
-      padding: 8px 12px;
+      gap: 6px;
+      padding: 6px 10px;
     }
 
-    .palette-slot {
+    .quick-slot {
       position: relative;
-      width: 54px;
-      height: 54px;
+      width: 44px;
+      height: 44px;
       background: rgba(30, 41, 59, 0.8);
       border: 2px solid rgba(255, 255, 255, 0.2);
       border-radius: 8px;
@@ -205,46 +433,43 @@
       pointer-events: auto;
     }
 
-    .palette-slot:hover {
+    .quick-slot:hover {
       border-color: #38bdf8;
       transform: translateY(-2px);
-      background: rgba(51, 65, 85, 0.9);
     }
 
-    .palette-slot.active {
+    .quick-slot.active {
       border-color: #facc15;
       background: rgba(250, 204, 21, 0.2);
-      box-shadow: 0 0 12px rgba(250, 204, 21, 0.5);
-      transform: translateY(-4px);
+      box-shadow: 0 0 10px rgba(250, 204, 21, 0.5);
+      transform: translateY(-3px);
     }
 
     .slot-key {
       position: absolute;
-      top: 2px;
-      left: 4px;
-      font-size: 10px;
+      top: 1px;
+      left: 3px;
+      font-size: 9px;
       font-weight: 700;
       color: #94a3b8;
     }
 
     .slot-color {
-      width: 22px;
-      height: 22px;
-      border-radius: 4px;
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
       border: 1px solid rgba(255, 255, 255, 0.3);
-      margin-top: 4px;
+      margin-top: 3px;
     }
 
     .slot-name {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
-      margin-top: 2px;
       color: #e2e8f0;
-      text-transform: capitalize;
     }
 
-    /* 互換用非表示要素 */
-    #ui-overlay {
+    /* 互換用要素 */
+    #ui-overlay, #block-palette {
       display: none;
     }
   </style>
@@ -268,17 +493,26 @@
         </div>
       </div>
 
-      <!-- GOAP NPC Status Card -->
-      <div id="npc-hud" class="glass-card">
-        <div class="npc-header">
-          <div class="npc-avatar-icon">🤖</div>
-          <div>
-            <div class="npc-title" id="npc-name">お手伝いピコ</div>
-            <div class="npc-meta" id="npc-goal">目標: プレイヤーの探索</div>
+      <!-- Center-Right: NPC & Toggle Buttons -->
+      <div style="display: flex; gap: 12px; align-items: flex-start;">
+        <!-- GOAP NPC Status Card -->
+        <div id="npc-hud" class="glass-card">
+          <div class="npc-header">
+            <div class="npc-avatar-icon">🤖</div>
+            <div>
+              <div class="npc-title" id="npc-name">お手伝いピコ</div>
+              <div class="npc-meta" id="npc-goal">目標: プレイヤーの探索</div>
+            </div>
           </div>
+          <div class="npc-meta" id="npc-task">タスク: 見回り待機中</div>
+          <div class="npc-bubble" id="npc-message">「何か手伝えることはあるかな？」</div>
         </div>
-        <div class="npc-meta" id="npc-task">タスク: 見回り待機中</div>
-        <div class="npc-bubble" id="npc-message">「何か手伝えることはあるかな？」</div>
+
+        <!-- 編集モードトグルボタン -->
+        <button id="btn-toggle-edit" class="glass-card edit-toggle-btn">
+          <span id="edit-btn-icon">🛠️</span>
+          <span id="edit-btn-text">ワールド編集 (E)</span>
+        </button>
       </div>
     </div>
 
@@ -287,43 +521,43 @@
       <!-- Controls Guide (Left Bottom) -->
       <div id="controls-guide" class="glass-card">
         <div style="font-weight: bold; margin-bottom: 4px; color: #38bdf8;">🎮 操作ガイド</div>
-        <div><span class="key-badge">W</span><span class="key-badge">A</span><span class="key-badge">S</span><span class="key-badge">D</span> 移動</div>
-        <div><b>左クリック</b>: 採掘・破壊</div>
-        <div><b>右クリック</b>: ブロック配置</div>
-        <div><span class="key-badge">1</span>〜<span class="key-badge">6</span> / <b>クリック</b>: ブロック選択</div>
-        <div><b>VRMファイル</b>: 画面にD&Dでアバター変更</div>
+        <div><span class="key-badge">W</span><span class="key-badge">A</span><span class="key-badge">S</span><span class="key-badge">D</span> 直感移動（画面連動）</div>
+        <div><b>左クリック</b>: ボックス配置</div>
+        <div><b>右クリック</b>: ボックス削除</div>
+        <div><b>ホイール</b>: 視点ズーム拡縮</div>
+        <div><span class="key-badge">E</span> / ボタン: 編集モード切替</div>
+        <div><b>VRM</b>: 画面D&Dでアバター変更</div>
       </div>
 
-      <!-- Block Palette (Bottom Center) -->
+      <!-- Quick Palette (Bottom Center) -->
       <div class="bottom-center-bar">
-        <div id="block-palette" class="glass-card">
-          <!-- Dynamically populated or static slots -->
-          <div class="palette-slot active" data-type="grass" data-key="1">
+        <div id="quick-palette" class="glass-card">
+          <div class="quick-slot active" data-type="grass" data-key="1">
             <span class="slot-key">1</span>
             <div class="slot-color" style="background: #55aa44;"></div>
             <span class="slot-name">草地</span>
           </div>
-          <div class="palette-slot" data-type="dirt" data-key="2">
+          <div class="quick-slot" data-type="dirt" data-key="2">
             <span class="slot-key">2</span>
             <div class="slot-color" style="background: #8b5a2b;"></div>
             <span class="slot-name">土</span>
           </div>
-          <div class="palette-slot" data-type="stone" data-key="3">
+          <div class="quick-slot" data-type="stone" data-key="3">
             <span class="slot-key">3</span>
             <div class="slot-color" style="background: #777788;"></div>
             <span class="slot-name">石</span>
           </div>
-          <div class="palette-slot" data-type="wood" data-key="4">
+          <div class="quick-slot" data-type="wood" data-key="4">
             <span class="slot-key">4</span>
             <div class="slot-color" style="background: #5c4033;"></div>
             <span class="slot-name">原木</span>
           </div>
-          <div class="palette-slot" data-type="leaves" data-key="5">
+          <div class="quick-slot" data-type="leaves" data-key="5">
             <span class="slot-key">5</span>
             <div class="slot-color" style="background: #3e8e41;"></div>
             <span class="slot-name">葉</span>
           </div>
-          <div class="palette-slot" data-type="plank" data-key="6">
+          <div class="quick-slot" data-type="plank" data-key="6">
             <span class="slot-key">6</span>
             <div class="slot-color" style="background: #c4a482;"></div>
             <span class="slot-name">木板</span>
@@ -332,9 +566,95 @@
       </div>
 
       <!-- Spacer for balance -->
-      <div style="width: 260px;"></div>
+      <div style="width: 270px;"></div>
     </div>
   </div>
+
+  <!-- ワールド編集スライドイン・ドロワー -->
+  <aside id="edit-drawer">
+    <div class="drawer-header">
+      <h2>🛠️ ワールド編集</h2>
+      <button id="btn-close-drawer" class="icon-btn" title="閉じる (E)">✕</button>
+    </div>
+
+    <!-- ツール選択 -->
+    <div class="drawer-section">
+      <label>編集ツール</label>
+      <div class="btn-group">
+        <button class="tool-btn active" data-tool="place">🔨 配置</button>
+        <button class="tool-btn" data-tool="destroy">⛏️ 削除</button>
+        <button class="tool-btn" data-tool="stamp">🏛️ スタンプ</button>
+      </div>
+    </div>
+
+    <!-- ブラシサイズ (配置/削除ツール時) -->
+    <div class="drawer-section" id="section-brush-size">
+      <label>ブラシサイズ</label>
+      <div class="btn-group">
+        <button class="brush-btn active" data-size="1">1x1</button>
+        <button class="brush-btn" data-size="2">2x2</button>
+        <button class="brush-btn" data-size="3">3x3</button>
+      </div>
+    </div>
+
+    <!-- ブロック素材選択 -->
+    <div class="drawer-section" id="section-material">
+      <label>ブロック素材 (数字キー 1-6)</label>
+      <div class="palette-grid">
+        <div class="palette-item active" data-type="grass">
+          <div class="item-color" style="background: #55aa44;"></div>
+          <span class="item-name">草地 (1)</span>
+        </div>
+        <div class="palette-item" data-type="dirt">
+          <div class="item-color" style="background: #8b5a2b;"></div>
+          <span class="item-name">土 (2)</span>
+        </div>
+        <div class="palette-item" data-type="stone">
+          <div class="item-color" style="background: #777788;"></div>
+          <span class="item-name">石 (3)</span>
+        </div>
+        <div class="palette-item" data-type="wood">
+          <div class="item-color" style="background: #5c4033;"></div>
+          <span class="item-name">原木 (4)</span>
+        </div>
+        <div class="palette-item" data-type="leaves">
+          <div class="item-color" style="background: #3e8e41;"></div>
+          <span class="item-name">葉 (5)</span>
+        </div>
+        <div class="palette-item" data-type="plank">
+          <div class="item-color" style="background: #c4a482;"></div>
+          <span class="item-name">木板 (6)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 建築スタンプ (スタンプツール選択時に表示) -->
+    <div class="drawer-section" id="section-stamp" style="display: none;">
+      <label>建築スタンプ (ワンクリック生成)</label>
+      <div class="stamp-grid">
+        <div class="stamp-card active" data-stamp="tree">
+          <span class="stamp-icon">🌲</span>
+          <span>一本杉</span>
+        </div>
+        <div class="stamp-card" data-stamp="gazebo">
+          <span class="stamp-icon">🏠</span>
+          <span>小さな東屋</span>
+        </div>
+        <div class="stamp-card" data-stamp="wall">
+          <span class="stamp-icon">🧱</span>
+          <span>防護石垣</span>
+        </div>
+        <div class="stamp-card" data-stamp="stairs">
+          <span class="stamp-icon">🪜</span>
+          <span>段差階段</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size: 11px; color: #64748b; line-height: 1.5; margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+      💡 <b>ヒント</b>: 編集モード中は画面を左クリックで配置、右クリックで削除できます。ホイールで視点をズームできます。
+    </div>
+  </aside>
 
   <div id="ui-overlay"></div>
 

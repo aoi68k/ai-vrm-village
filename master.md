@@ -87,12 +87,11 @@ ai-vrm-village/
 ├── .gitignore                  # 除外設定
 ├── package.json                # 依存関係定義 (Three.js, @pixiv/three-vrm, Colyseus, Vite)
 ├── tsconfig.json               # TypeScript設定
-├── setup.bat                   # Windows環境一括ビルド・起動バッチ
-├── index.html                  # UI & キャンバスエントリーポイント
-├── client.ts                   # クライアントメイン (VRM, Three.js, Raycast, Network)
+├── vite.config.ts              # Viteビルド・GitHub Pages設定
+├── index.html                  # UI & キャンバスエントリーポイント (開閉式ワールド編集GUI)
+├── client.ts                   # クライアントメイン (VRM, Three.js, Raycast, Network, EditMode)
 ├── server.ts                   # Authoritative サーバー (Colyseus, GOAP AI Engine)
-├── master.md                   # 全体設計ドキュメント
-└── game-architecture-mockup.ts # 参考用全体モックアップコード
+└── master.md                   # 全体設計ドキュメント
 ```
 
 ---
