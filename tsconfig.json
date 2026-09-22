@@ -3,6 +3,7 @@
     "target": "es2022",
     "lib": ["es2022","DOM", "DOM.Iterable", "ESNext"],
     "esModuleInterop": true,
+    "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
 
     /* 以下の2行をNode16（またはNodeNext）に更新します */
