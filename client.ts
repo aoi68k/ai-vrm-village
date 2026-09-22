@@ -1494,8 +1494,8 @@ export class DynamicVoxelWorld {
 
     (Object.keys(this.materials) as VoxelType[]).forEach((type) => {
       const mesh = new THREE.InstancedMesh(geometry, this.materials[type], 2500);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      mesh.castShadow = false; // 💡 軽量化: 数千個のボクセル自体の影描画をスキップ（シャドウパス負荷激減）
+      mesh.receiveShadow = true; // キャラクターやNPCが落とす影は綺麗に受ける
       this.meshMap.set(type, mesh);
       this.scene.add(mesh);
     });
@@ -1522,6 +1522,12 @@ export class DynamicVoxelWorld {
     this.meshMap.forEach((mesh, type) => {
       mesh.count = counts[type];
       mesh.instanceMatrix.needsUpdate = true;
+      // 💡 重要: インスタンス更新後にバウンディング情報を再計算しないと、
+      // スタンプ等で新しく追加されたブロックへのレイキャスト（破壊・配置）がThree.js内部で除外されてしまう
+      if (mesh.count > 0) {
+        mesh.computeBoundingSphere();
+        mesh.computeBoundingBox();
+      }
     });
   }
 
@@ -1592,7 +1598,11 @@ export class DynamicVoxelWorld {
   }
 
   public getInstancedMeshes(): THREE.InstancedMesh[] {
-    return Array.from(this.meshMap.values());
+    const list: THREE.InstancedMesh[] = [];
+    this.meshMap.forEach((mesh) => {
+      if (mesh.count > 0) list.push(mesh);
+    });
+    return list;
   }
 }
 
@@ -1972,9 +1982,9 @@ export class VoxelVRMApp {
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25)); // 💡 軽量化: 高解像度ディスプレイでの過剰なピクセル計算を防止
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap; // 💡 軽量化: PCFSoftShadowMapより軽量なPCFShadowMapを採用
     container.appendChild(this.renderer.domElement);
 
     this.cameraSys = new IsometricCameraSystem(window.innerWidth / window.innerHeight);
@@ -2016,6 +2026,7 @@ export class VoxelVRMApp {
 
     window.addEventListener('resize', () => {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
       this.cameraSys.handleResize(window.innerWidth, window.innerHeight);
     });
 
@@ -3079,10 +3090,23 @@ export class VoxelVRMApp {
     this.scene.add(ambientLight);
 
     const dirLight = new THREE.DirectionalLight(0xfffaed, 1.25);
-    dirLight.position.set(40, 60, 30);
+    dirLight.position.set(35, 55, 25);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
+
+    // 💡 軽量化: シャドウマップ解像度を 2048x2048 から 1024x1024 へ適正化 (VRAM/テクスチャフェッチ負荷半減)
+    dirLight.shadow.mapSize.width = 1024;
+    dirLight.shadow.mapSize.height = 1024;
+
+    // 💡 軽量化: シャドウカメラのカリング範囲を村の有効範囲にタイトに設定（無駄な深度描画をカット）
+    const shadowBound = 22;
+    dirLight.shadow.camera.left = -shadowBound;
+    dirLight.shadow.camera.right = shadowBound;
+    dirLight.shadow.camera.top = shadowBound;
+    dirLight.shadow.camera.bottom = -shadowBound;
+    dirLight.shadow.camera.near = 15;
+    dirLight.shadow.camera.far = 110;
+    dirLight.shadow.bias = -0.0004; // モアレ・シャドウアクネ防止
+
     this.scene.add(dirLight);
   }
 
