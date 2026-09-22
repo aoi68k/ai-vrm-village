@@ -1625,7 +1625,8 @@ export function getAutoServerUrl(): string {
     return `ws://${host}:2567`;
   }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${host}:2567`;
+  // return `${protocol}//${host}:2567`;
+  return `https://ai-vrm-village.onrender.com/`;  // Render.com でホストされている Colyseus サーバーの URL
 }
 
 // ============================================================================
