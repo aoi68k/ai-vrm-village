@@ -28,31 +28,54 @@ export function getVRMMeta(vrm: VRM, fallbackFileName?: string): { title: string
   return { title, author };
 }
 
-// VRM顔写真の自動オフスクリーン撮影 (Face Capture: 独立シーン & 専用スタジオライティングで被写体のみを美しく撮影)
-export function captureVRMFace(renderer: THREE.WebGLRenderer, scene: THREE.Scene, vrm: VRM): string {
+export interface VRMCapturedTextures {
+  faceDataUrl: string;
+  bodyDataUrl: string;
+}
+
+// 読み取ったWebGLピクセルバッファを上下反転補正してCanvas DataURLに変換
+function renderBufferToDataUrl(pixels: Uint8Array, width: number, height: number): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  const imgData = ctx.createImageData(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const srcIdx = ((height - 1 - y) * width + x) * 4;
+      const dstIdx = (y * width + x) * 4;
+      imgData.data[dstIdx] = pixels[srcIdx];
+      imgData.data[dstIdx + 1] = pixels[srcIdx + 1];
+      imgData.data[dstIdx + 2] = pixels[srcIdx + 2];
+      imgData.data[dstIdx + 3] = pixels[srcIdx + 3];
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+// VRMアバターの自動オフスクリーン撮影 (顔 256x256 ＆ ボックスマン等身に合わせた首から下 256x358)
+export function captureVRMTextures(
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  vrm: VRM,
+  colors?: { hair?: string; skin?: string; clothing?: string }
+): VRMCapturedTextures {
   const disposables: { dispose: () => void }[] = [];
   const originalParent = vrm.scene.parent || scene;
+  let faceDataUrl = '';
+  let bodyDataUrl = '';
 
   try {
-    const width = 256;
-    const height = 256;
-    const target = new THREE.WebGLRenderTarget(width, height, {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat,
-    });
-    disposables.push(target);
-
-    // 💡 ワールドオブジェクト（ボックスマン、ブロック、他プレイヤー、ピコ等）の写り込みを
-    // 完全に防止するため、顔撮影専用の独立したシーンを作成
+    // ワールドオブジェクトの写り込みを防ぐ撮影専用シーン
     const captureScene = new THREE.Scene();
-    captureScene.background = new THREE.Color(0xf0f0f0); // 白系ニュートラル背景
 
-    // 一時的にVRMモデルのみを撮影専用シーンへ移設
     captureScene.add(vrm.scene);
     vrm.scene.updateMatrixWorld(true);
 
-    // 頭部ボーン位置の取得
+    // 頭部・首元ボーン位置の取得
     const headNode = vrm.humanoid?.getNormalizedBoneNode('head') || vrm.humanoid?.getRawBoneNode('head');
     const headWorldPos = new THREE.Vector3();
     if (headNode) {
@@ -61,98 +84,137 @@ export function captureVRMFace(renderer: THREE.WebGLRenderer, scene: THREE.Scene
       headWorldPos.copy(vrm.scene.position).add(new THREE.Vector3(0, 1.4, 0));
     }
 
-    // 専用クローズアップカメラ (画角狭め 24度)
-    const faceCam = new THREE.PerspectiveCamera(24, 1, 0.1, 20);
+    const neckNode = vrm.humanoid?.getNormalizedBoneNode('neck')
+      || vrm.humanoid?.getRawBoneNode('neck')
+      || vrm.humanoid?.getNormalizedBoneNode('head');
+    const neckWorldPos = new THREE.Vector3();
+    if (neckNode) {
+      neckNode.getWorldPosition(neckWorldPos);
+    } else {
+      neckWorldPos.copy(headWorldPos).add(new THREE.Vector3(0, -0.15, 0));
+    }
+
     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(vrm.scene.quaternion);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(vrm.scene.quaternion);
 
-    faceCam.position.copy(headWorldPos).addScaledVector(forward, 0.65).add(new THREE.Vector3(0, 0.03, 0));
+    // 1. 顔用カメラ (正方形 256x256, FOV 22度: ボックスマン頭部 0.4x0.4 の正方形に適合)
+    const faceCam = new THREE.PerspectiveCamera(22, 1, 0.1, 20);
+    faceCam.position.copy(headWorldPos).addScaledVector(forward, 0.65).add(new THREE.Vector3(0, 0.02, 0));
     faceCam.lookAt(headWorldPos.x, headWorldPos.y + 0.01, headWorldPos.z);
 
-    // 📸 撮影専用スタジオライティング (キャラから見て斜め前・上から主光線を強力に当てて顔の凹凸と陰影を鮮明に表現)
-    // 1. 環境光 (全体のベース。凹凸の陰影が消えないよう 0.2 に抑えてコントラストを確保)
-    const ambLight = new THREE.AmbientLight(0xffffff, 0.2);
+    // 2. 首から下・胴体用カメラ (5:7比率 256x358: ボックスマン胴体 0.5x0.7 の比率に適合)
+    const groundY = vrm.scene.position.y;
+    const bodyH = Math.max(0.75, neckWorldPos.y - groundY);
+    const bodyCenterY = groundY + bodyH * 0.48;
+    const bodyCenter = new THREE.Vector3(neckWorldPos.x, bodyCenterY, neckWorldPos.z);
+
+    const bodyCam = new THREE.PerspectiveCamera(22, 5 / 7, 0.1, 20);
+    const bodyDist = (bodyH * 1.05) / (2 * Math.tan((11 * Math.PI) / 180));
+    bodyCam.position.copy(bodyCenter).addScaledVector(forward, bodyDist);
+    bodyCam.lookAt(bodyCenter);
+
+    // スタジオライティング (顔および胴体全体を綺麗に照射)
+    const ambLight = new THREE.AmbientLight(0xffffff, 0.35);
     captureScene.add(ambLight);
     disposables.push(ambLight);
 
-    // 2. メインキーライト (キャラから見て「右斜め前・上」から顔全体を照らす主光源: 強度 2.4)
-    // キャラクターの正面(forward)＋右(right)＋頭上(up)の合成ベクトルから照射
     const keyDir = new THREE.Vector3()
       .addScaledVector(forward, 0.9)
       .addScaledVector(right, 0.65)
       .add(new THREE.Vector3(0, 1.2, 0))
       .normalize();
 
-    const keyLight = new THREE.DirectionalLight(0xfffaee, 2.4);
-    keyLight.position.copy(headWorldPos).addScaledVector(keyDir, 2.2);
-    keyLight.target.position.copy(headWorldPos);
-    captureScene.add(keyLight);
-    captureScene.add(keyLight.target);
-    disposables.push(keyLight);
+    const headKeyLight = new THREE.DirectionalLight(0xfffaee, 2.2);
+    headKeyLight.position.copy(headWorldPos).addScaledVector(keyDir, 2.2);
+    headKeyLight.target.position.copy(headWorldPos);
+    captureScene.add(headKeyLight);
+    captureScene.add(headKeyLight.target);
+    disposables.push(headKeyLight);
 
-    // 3. 補助フィルライト (左前方からのごく淡い光で暗部の黒つぶれだけを防止: 強度 0.2)
+    const bodyKeyLight = new THREE.DirectionalLight(0xfffaee, 1.8);
+    bodyKeyLight.position.copy(bodyCenter).addScaledVector(keyDir, 2.5);
+    bodyKeyLight.target.position.copy(bodyCenter);
+    captureScene.add(bodyKeyLight);
+    captureScene.add(bodyKeyLight.target);
+    disposables.push(bodyKeyLight);
+
     const fillDir = new THREE.Vector3()
       .addScaledVector(forward, 0.7)
       .addScaledVector(right, -0.6)
       .add(new THREE.Vector3(0, 0.5, 0))
       .normalize();
 
-    const fillLight = new THREE.DirectionalLight(0xdce7f5, 0.2);
-    fillLight.position.copy(headWorldPos).addScaledVector(fillDir, 1.8);
-    fillLight.target.position.copy(headWorldPos);
+    const fillLight = new THREE.DirectionalLight(0xdce7f5, 0.3);
+    fillLight.position.copy(bodyCenter).addScaledVector(fillDir, 2.0);
+    fillLight.target.position.copy(bodyCenter);
     captureScene.add(fillLight);
     captureScene.add(fillLight.target);
     disposables.push(fillLight);
 
-    // VRMモデルとライトの姿勢・行列を更新
     vrm.update(0.016);
     captureScene.updateMatrixWorld(true);
 
-    // レンダリング実行
     const prevTarget = renderer.getRenderTarget();
     const prevClearColor = new THREE.Color();
     const prevClearAlpha = renderer.getClearAlpha();
     renderer.getClearColor(prevClearColor);
 
-    renderer.setRenderTarget(target);
-    renderer.setClearColor(0xf0f0f0, 1);
+    // --- 撮影A: 顔 (256x256) ---
+    const faceW = 256;
+    const faceH = 256;
+    const faceTarget = new THREE.WebGLRenderTarget(faceW, faceH, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    });
+    disposables.push(faceTarget);
+
+    const faceBgColor = colors?.hair ? new THREE.Color(colors.hair) : new THREE.Color(0xf0f0f0);
+    renderer.setRenderTarget(faceTarget);
+    renderer.setClearColor(faceBgColor, 1);
     renderer.clear();
     renderer.render(captureScene, faceCam);
+
+    const facePixels = new Uint8Array(faceW * faceH * 4);
+    renderer.readRenderTargetPixels(faceTarget, 0, 0, faceW, faceH, facePixels);
+    faceDataUrl = renderBufferToDataUrl(facePixels, faceW, faceH);
+
+    // --- 撮影B: 首から下・胴体 (256x358, 5:7比率) ---
+    const bodyW = 256;
+    const bodyH_px = 358;
+    const bodyTarget = new THREE.WebGLRenderTarget(bodyW, bodyH_px, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    });
+    disposables.push(bodyTarget);
+
+    const bodyBgColor = colors?.clothing ? new THREE.Color(colors.clothing) : new THREE.Color(0xf0f0f0);
+    renderer.setRenderTarget(bodyTarget);
+    renderer.setClearColor(bodyBgColor, 1);
+    renderer.clear();
+    renderer.render(captureScene, bodyCam);
+
+    const bodyPixels = new Uint8Array(bodyW * bodyH_px * 4);
+    renderer.readRenderTargetPixels(bodyTarget, 0, 0, bodyW, bodyH_px, bodyPixels);
+    bodyDataUrl = renderBufferToDataUrl(bodyPixels, bodyW, bodyH_px);
+
     renderer.setRenderTarget(prevTarget);
-    renderer.setClearColor(prevClearColor, prevClearAlpha); // クリアカラーを元に戻す
-
-    const pixelBuffer = new Uint8Array(width * height * 4);
-    renderer.readRenderTargetPixels(target, 0, 0, width, height, pixelBuffer);
-
-    // 上下反転補正して Canvas から DataURL を生成
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
-
-    const imgData = ctx.createImageData(width, height);
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const srcIdx = ((height - 1 - y) * width + x) * 4;
-        const dstIdx = (y * width + x) * 4;
-        imgData.data[dstIdx] = pixelBuffer[srcIdx];
-        imgData.data[dstIdx + 1] = pixelBuffer[srcIdx + 1];
-        imgData.data[dstIdx + 2] = pixelBuffer[srcIdx + 2];
-        imgData.data[dstIdx + 3] = pixelBuffer[srcIdx + 3];
-      }
-    }
-    ctx.putImageData(imgData, 0, 0);
-    return canvas.toDataURL('image/png');
+    renderer.setClearColor(prevClearColor, prevClearAlpha);
   } catch (err) {
-    console.warn('VRM顔キャプチャに失敗しました:', err);
-    return '';
+    console.warn('VRMテクスチャ撮影に失敗しました:', err);
   } finally {
-    // 撮影完了後、VRMモデルを必ず元のシーンへ戻し、リソースを解放
     originalParent.add(vrm.scene);
     vrm.scene.updateMatrixWorld(true);
     disposables.forEach((d) => d.dispose());
   }
+
+  return { faceDataUrl, bodyDataUrl };
+}
+
+// 互換用ラッパー
+export function captureVRMFace(renderer: THREE.WebGLRenderer, scene: THREE.Scene, vrm: VRM): string {
+  return captureVRMTextures(renderer, scene, vrm).faceDataUrl;
 }
 
 // ネットワーク共有用にアバター画像を 64x64 JPEG に軽量圧縮
@@ -500,6 +562,8 @@ export class VRMAvatarController {
   private rightArm: THREE.Mesh;
   private body: THREE.Mesh;
   private head: THREE.Mesh;
+  private headMat: THREE.MeshStandardMaterial;
+  private bodyMat: THREE.MeshStandardMaterial;
 
   private moveSpeed = 5.5;
   private walkTime = 0;
@@ -512,16 +576,16 @@ export class VRMAvatarController {
   constructor(private scene: THREE.Scene) {
     // 自キャラ用ボックスマンの生成 (VRM読み込み前の初期アバター)
     const bodyGeo = new THREE.BoxGeometry(0.5, 0.7, 0.35);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4 });
-    this.body = new THREE.Mesh(bodyGeo, bodyMat);
+    this.bodyMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4 });
+    this.body = new THREE.Mesh(bodyGeo, this.bodyMat);
     this.body.position.y = 0.5;
     this.body.castShadow = true;
     this.body.receiveShadow = true;
     this.boxmanGroup.add(this.body);
 
     const headGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.3 });
-    this.head = new THREE.Mesh(headGeo, headMat);
+    this.headMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.3 });
+    this.head = new THREE.Mesh(headGeo, this.headMat);
     this.head.position.y = 1.05;
     this.head.castShadow = true;
     this.head.receiveShadow = true;
@@ -553,18 +617,71 @@ export class VRMAvatarController {
         }
       } catch (e) {}
     }
+
+    // 保存されたテクスチャがあればボックスマン前面に復帰適用
+    const savedFace = localStorage.getItem('vrm_village_boxman_face_tex');
+    const savedBody = localStorage.getItem('vrm_village_boxman_body_tex');
+    if (savedFace || savedBody) {
+      this.applyBoxmanTextures(savedFace || '', savedBody || '');
+    }
   }
 
   // VRM由来の配色をボックスマンに適用 (hair→頭, skin→腕, clothing→胴体)
   public setColors(hair: string, skin: string, clothing: string): void {
-    const headMat = this.head.material as THREE.MeshStandardMaterial;
-    const bodyMat = this.body.material as THREE.MeshStandardMaterial;
-    const lArmMat = this.leftArm.material as THREE.MeshStandardMaterial;
-    const rArmMat = this.rightArm.material as THREE.MeshStandardMaterial;
-    if (headMat) { headMat.color.set(hair); headMat.needsUpdate = true; }
-    if (bodyMat) { bodyMat.color.set(clothing); bodyMat.needsUpdate = true; }
-    if (lArmMat) { lArmMat.color.set(skin); lArmMat.needsUpdate = true; }
-    if (rArmMat) { rArmMat.color.set(skin); rArmMat.needsUpdate = true; }
+    if (this.headMat) { this.headMat.color.set(hair); this.headMat.needsUpdate = true; }
+    if (this.bodyMat) { this.bodyMat.color.set(clothing); this.bodyMat.needsUpdate = true; }
+    if (this.leftArm) { (this.leftArm.material as THREE.MeshStandardMaterial).color.set(skin); }
+    if (this.rightArm) { (this.rightArm.material as THREE.MeshStandardMaterial).color.set(skin); }
+  }
+
+  // ボックスマン前面への撮影テクスチャ適用 (顔: head前面, 首から下: body前面)
+  public applyBoxmanTextures(faceDataUrl: string, bodyDataUrl: string): void {
+    if (faceDataUrl) {
+      const faceImg = new Image();
+      faceImg.onload = () => {
+        const tex = new THREE.CanvasTexture(faceImg);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const frontHeadMat = new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.35,
+          color: 0xffffff
+        });
+        // BoxGeometry face index: [ +X(right), -X(left), +Y(top), -Y(bottom), +Z(front), -Z(back) ]
+        this.head.material = [
+          this.headMat,
+          this.headMat,
+          this.headMat,
+          this.headMat,
+          frontHeadMat,
+          this.headMat
+        ];
+        this.head.material.forEach((m) => { m.needsUpdate = true; });
+      };
+      faceImg.src = faceDataUrl;
+    }
+
+    if (bodyDataUrl) {
+      const bodyImg = new Image();
+      bodyImg.onload = () => {
+        const tex = new THREE.CanvasTexture(bodyImg);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const frontBodyMat = new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.4,
+          color: 0xffffff
+        });
+        this.body.material = [
+          this.bodyMat,
+          this.bodyMat,
+          this.bodyMat,
+          this.bodyMat,
+          frontBodyMat,
+          this.bodyMat
+        ];
+        this.body.material.forEach((m) => { m.needsUpdate = true; });
+      };
+      bodyImg.src = bodyDataUrl;
+    }
   }
 
   // アバター表示モードの切り替え (VRM ⇄ ボックスマン)
@@ -2681,8 +2798,9 @@ export class VoxelVRMApp {
       this.updateProfileBadgeUI();
     }
 
-    // VRMの顔を自動オフスクリーン撮影
-    const faceDataUrl = captureVRMFace(this.renderer, this.scene, vrm);
+    // VRMの顔およびボックスマン等身の首から下テクスチャを自動撮影
+    const captured = captureVRMTextures(this.renderer, this.scene, vrm);
+    const faceDataUrl = captured.faceDataUrl;
     if (faceDataUrl) {
       this.myAvatarFaceDataUrl = faceDataUrl;
 
@@ -2710,6 +2828,12 @@ export class VoxelVRMApp {
       });
     }
 
+    if (captured.faceDataUrl && captured.bodyDataUrl) {
+      this.avatar.applyBoxmanTextures(captured.faceDataUrl, captured.bodyDataUrl);
+      localStorage.setItem('vrm_village_boxman_face_tex', captured.faceDataUrl);
+      localStorage.setItem('vrm_village_boxman_body_tex', captured.bodyDataUrl);
+    }
+
     // VRMテクスチャおよび顔写真から代表色を抽出してサーバーへ送信 ＆ 自キャラボックスマンに反映
     this.extractVRMColors(vrm, faceDataUrl).then((extractedColors) => {
       console.log('🎨 [VRM Colors Sending to Server]:', extractedColors);
@@ -2717,6 +2841,14 @@ export class VoxelVRMApp {
       // 💡 ボックスマンにVRMの配色を反映
       this.avatar.setColors(extractedColors.hair, extractedColors.skin, extractedColors.clothing);
       localStorage.setItem('vrm_village_boxman_colors', JSON.stringify(extractedColors));
+
+      // 💡 抽出色を背景に馴染ませたテクスチャをボックスマン前面に更新
+      const finalCaptured = captureVRMTextures(this.renderer, this.scene, vrm, extractedColors);
+      if (finalCaptured.faceDataUrl && finalCaptured.bodyDataUrl) {
+        this.avatar.applyBoxmanTextures(finalCaptured.faceDataUrl, finalCaptured.bodyDataUrl);
+        localStorage.setItem('vrm_village_boxman_face_tex', finalCaptured.faceDataUrl);
+        localStorage.setItem('vrm_village_boxman_body_tex', finalCaptured.bodyDataUrl);
+      }
     });
 
     this.updateAvatarToggleBtnUI();
