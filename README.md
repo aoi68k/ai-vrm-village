@@ -40,6 +40,17 @@ npm run dev:server
 
 ---
 
+## 🌐 マルチプレイサーバーのデプロイ (Render.com)
+
+本リポジトリには Render.com 用の設定ファイル `render.yaml` が同梱されており、無料枠でサーバーを公開できます。
+
+1. [Render.com](https://render.com/) にログインし、**New +** → **Blueprint** を選択します。
+2. 本リポジトリ (`ai-vrm-village`) を選択すると、`render.yaml` が自動認識されます。
+3. **Apply** をクリックすると、自動で `npm install` および `npm start` (Colyseusサーバー) がビルド・デプロイされます。
+4. 発行された URL (例: `https://ai-vrm-village.onrender.com`) をゲーム内の **「プロフィール設定」→「🌐 マルチプレイ・サーバー接続設定」** に入力、または URL 末尾に `?server=https://your-service.onrender.com` を付けてアクセスすると接続完了です。
+
+---
+
 ## 🛠️ 主な機能
 - **VRMアバター**: 自然な立ち姿待機モーション、関節連動歩行、採掘/設置アクション、自動まばたき。
 - **開閉式ワールド編集GUI**: 半透明ゴーストプレビュー、1x1〜3x3ブラシ、ワンクリック建築スタンプ（木、東屋、石垣、階段）。
