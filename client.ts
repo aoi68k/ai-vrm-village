@@ -1067,7 +1067,7 @@ export class RemotePlayerRenderer {
     const bubbleTexture = new THREE.CanvasTexture(this.bubbleCanvas);
     const bubbleMat = new THREE.SpriteMaterial({ map: bubbleTexture, depthTest: false, depthWrite: false });
     this.bubbleSprite = new THREE.Sprite(bubbleMat);
-    this.bubbleSprite.renderOrder = 999;
+    this.bubbleSprite.renderOrder = 1000;
     this.bubbleSprite.position.set(0, 2.15, 0);
     this.bubbleSprite.visible = false;
     this.group.add(this.bubbleSprite);
@@ -1333,10 +1333,12 @@ export class NPCRenderer {
     const spriteMat = new THREE.SpriteMaterial({
       map: texture,
       depthTest: false,
-      depthWrite: false
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.82
     });
     this.speechSprite = new THREE.Sprite(spriteMat);
-    this.speechSprite.renderOrder = 999;
+    this.speechSprite.renderOrder = 990;
     this.speechSprite.position.set(0, 1.85, 0);
     this.speechSprite.scale.set(2.4, 0.6, 1);
     this.group.add(this.speechSprite);
@@ -1358,8 +1360,8 @@ export class NPCRenderer {
       const targetW = 160 * unitsPerPixel;
       const targetH = 46 * unitsPerPixel;
 
-      this.ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-      this.ctx.strokeStyle = '#38bdf8';
+      this.ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
       this.ctx.lineWidth = 5;
       this.ctx.roundRect(100, 16, 312, 96, 48);
       this.ctx.fill();
@@ -1378,8 +1380,8 @@ export class NPCRenderer {
       const targetW = 360 * unitsPerPixel;
       const targetH = 90 * unitsPerPixel;
 
-      this.ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-      this.ctx.strokeStyle = '#38bdf8';
+      this.ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
       this.ctx.lineWidth = 5;
       this.ctx.roundRect(10, 10, 492, 108, 22);
       this.ctx.fill();
@@ -2672,7 +2674,7 @@ export class VoxelVRMApp {
       depthWrite: false
     });
     this.myBubbleSprite = new THREE.Sprite(spriteMat);
-    this.myBubbleSprite.renderOrder = 998;
+    this.myBubbleSprite.renderOrder = 1000;
     this.myBubbleSprite.scale.set(2.6, 0.65, 1);
     this.myBubbleSprite.visible = false;
     this.scene.add(this.myBubbleSprite);
