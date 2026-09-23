@@ -1495,8 +1495,8 @@ export class DynamicVoxelWorld {
 
     (Object.keys(this.materials) as VoxelType[]).forEach((type) => {
       const mesh = new THREE.InstancedMesh(geometry, this.materials[type], 2500);
-      mesh.castShadow = false; // 💡 軽量化: 数千個のボクセル自体の影描画をスキップ（シャドウパス負荷激減）
-      mesh.receiveShadow = true; // キャラクターやNPCが落とす影は綺麗に受ける
+      mesh.castShadow = true; // 💡 軽量化の影: InstancedMeshにより全ボクセルをわずか6ドローコールで低負荷に影投影
+      mesh.receiveShadow = true; // キャラクターやNPC、他ブロックが落とす影を受ける
       this.meshMap.set(type, mesh);
       this.scene.add(mesh);
     });
@@ -1997,7 +1997,7 @@ export class VoxelVRMApp {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25)); // 💡 軽量化: 高解像度ディスプレイでの過剰なピクセル計算を防止
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap; // 💡 軽量化: PCFSoftShadowMapより軽量なPCFShadowMapを採用
+    this.renderer.shadowMap.type = THREE.BasicShadowMap; // 💡 軽量化の影: ぼかしフィルタ計算なしの超高速ハードシャドウ（ボクセルの輪郭がそのまま綺麗に落ちる）
     container.appendChild(this.renderer.domElement);
 
     this.cameraSys = new IsometricCameraSystem(window.innerWidth / window.innerHeight);
@@ -3127,18 +3127,18 @@ export class VoxelVRMApp {
   }
 
   private setupLighting(): void {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     this.scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xfffaed, 1.25);
+    const dirLight = new THREE.DirectionalLight(0xfffaed, 1.35);
     dirLight.position.set(35, 55, 25);
     dirLight.castShadow = true;
 
-    // 💡 軽量化: シャドウマップ解像度を 2048x2048 から 1024x1024 へ適正化 (VRAM/テクスチャフェッチ負荷半減)
+    // 💡 軽量化: シャドウマップ解像度を 1024x1024 (BasicShadowMapと組み合わせることで超低負荷かつクッキリ描写)
     dirLight.shadow.mapSize.width = 1024;
     dirLight.shadow.mapSize.height = 1024;
 
-    // 💡 軽量化: シャドウカメラのカリング範囲を村の有効範囲にタイトに設定（無駄な深度描画をカット）
+    // 💡 軽量化: シャドウカメラのカリング範囲を村の有効範囲にタイトに設定
     const shadowBound = 22;
     dirLight.shadow.camera.left = -shadowBound;
     dirLight.shadow.camera.right = shadowBound;
@@ -3146,7 +3146,8 @@ export class VoxelVRMApp {
     dirLight.shadow.camera.bottom = -shadowBound;
     dirLight.shadow.camera.near = 15;
     dirLight.shadow.camera.far = 110;
-    dirLight.shadow.bias = -0.0004; // モアレ・シャドウアクネ防止
+    dirLight.shadow.bias = -0.0003; // モアレ・シャドウアクネ防止
+    dirLight.shadow.normalBias = 0.03; // ボクセルの表面ノイズを完全に抑えるノーマルバイアス
 
     this.scene.add(dirLight);
   }
