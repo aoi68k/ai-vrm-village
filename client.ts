@@ -56,6 +56,28 @@ function renderBufferToDataUrl(pixels: Uint8Array, width: number, height: number
   return canvas.toDataURL('image/png');
 }
 
+// VRMのSpringBone（髪の毛や服などのゆれもの物理）を整定・自然な重力静止状態に落ち着かせるヘルパー
+export function settleVRMSpringBones(vrm: VRM, warmupFrames = 60): void {
+  try {
+    vrm.scene.updateMatrixWorld(true);
+
+    // SpringBoneの速度と前フレーム位置を初期化（急激な姿勢変化やシーン付け替えによる慣性・速度をリセット）
+    const sbm = vrm.springBoneManager || (vrm as any).springBone;
+    if (sbm && typeof sbm.reset === 'function') {
+      sbm.reset();
+    }
+
+    // 微小ステップでシミュレーションを進め、重力と空気抵抗減衰で髪や服を自然に下に垂れ下がらせて静止させる
+    for (let i = 0; i < warmupFrames; i++) {
+      vrm.update(0.016);
+    }
+
+    vrm.scene.updateMatrixWorld(true);
+  } catch (err) {
+    console.warn('VRM物理の整定中に警告が発生しました:', err);
+  }
+}
+
 // VRMアバターの自動オフスクリーン撮影 (顔 256x256 ＆ ボックスマン等身に合わせた首から下 256x358)
 export function captureVRMTextures(
   renderer: THREE.WebGLRenderer,
@@ -74,6 +96,10 @@ export function captureVRMTextures(
 
     captureScene.add(vrm.scene);
     vrm.scene.updateMatrixWorld(true);
+
+    // 💡 撮影用シーンへの配置直後の急激な座標移動による慣性の跳ね上がり（髪の逆立ち）をリセットし、
+    //    ゆれものを自然な重力下垂・静止状態に落ち着くまでシミュレーションを進める
+    settleVRMSpringBones(vrm, 60);
 
     // 頭部・首元ボーン位置の取得
     const headNode = vrm.humanoid?.getNormalizedBoneNode('head') || vrm.humanoid?.getRawBoneNode('head');
@@ -206,6 +232,8 @@ export function captureVRMTextures(
   } finally {
     originalParent.add(vrm.scene);
     vrm.scene.updateMatrixWorld(true);
+    // 💡 元のワールドシーン復帰時にも急激な慣性跳ね上がりをリセット
+    settleVRMSpringBones(vrm, 5);
     disposables.forEach((d) => d.dispose());
   }
 
@@ -755,9 +783,9 @@ export class VRMAvatarController {
           vrm.scene.position.copy(this.position);
           this.setAvatarMode('vrm');
           
-          // ロード直後から両腕を自然に下ろした立ちポーズを適用
+          // ロード直後から両腕を自然に下ろした立ちポーズを適用し、ゆれものを整定
           this.applyIdlePose(1.0);
-          this.vrm.update(0.016);
+          settleVRMSpringBones(vrm, 60);
 
           console.log('✅ VRMアバターのロード完了:', vrm);
           resolve(vrm);
