@@ -2861,7 +2861,7 @@ export class VoxelVRMApp {
     const loadSampleBtn = document.getElementById('btn-load-sample-vrm');
     loadSampleBtn?.addEventListener('click', async () => {
       this.updateStatus('VRMアバター読み込み中: Pixiv Sample VRM...');
-      const sampleVrmUrl = 'https://pixiv.github.io/three-vrm/packages/three-vrm/examples/models/VRM1_Constraint_Sample.vrm';
+      const sampleVrmUrl = 'https://raw.githubusercontent.com/pixiv/three-vrm/dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm';
       try {
         const vrm = await this.avatar.loadVRMFromUrl(sampleVrmUrl);
         this.onAvatarModelLoaded(vrm);
