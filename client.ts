@@ -1016,7 +1016,8 @@ export class RemotePlayerRenderer {
     public id: string,
     public name: string,
     public authType: string = 'guest',
-    public userHash: string = '~guest'
+    public userHash: string = '~guest',
+    public showUserHash: boolean = false
   ) {
     const bodyGeo = new THREE.BoxGeometry(0.5, 0.7, 0.35);
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
@@ -1095,6 +1096,11 @@ export class RemotePlayerRenderer {
     this.updateNamePlate(this.name, authType, userHash);
   }
 
+  public setShowUserHash(show: boolean): void {
+    this.showUserHash = show;
+    this.renderNamePlate(this.currentZoom);
+  }
+
   // 画面ピクセル基準でのネームプレート描画 (ズーム拡縮の影響を受けにくく常にしっかり読める大きさを維持)
   public renderNamePlate(cameraZoom = 2.25): void {
     if (!this.nameCtx) return;
@@ -1115,30 +1121,41 @@ export class RemotePlayerRenderer {
     this.nameCtx.fill();
     this.nameCtx.stroke();
 
-    // プレイヤー名 (大きめの太字フォント)
-    this.nameCtx.fillStyle = '#ffffff';
-    this.nameCtx.font = 'bold 34px sans-serif';
-    this.nameCtx.textAlign = 'left';
-    this.nameCtx.textBaseline = 'middle';
     const icon = isGh ? '🐱' : '👤';
-    const trimmedName = this.name.length > 8 ? this.name.substring(0, 8) + '..' : this.name;
-    this.nameCtx.fillText(`${icon} ${trimmedName}`, 32, 64);
 
-    // ハッシュバッジ (右寄せで角丸ピル背景付き)
-    const hashText = this.userHash || '~guest';
-    this.nameCtx.font = 'bold 26px monospace';
-    const hashWidth = this.nameCtx.measureText(hashText).width;
-    
-    // ハッシュ用小バッジ背景
-    this.nameCtx.fillStyle = isGh ? 'rgba(16, 185, 129, 0.25)' : 'rgba(56, 189, 248, 0.2)';
-    this.nameCtx.beginPath();
-    this.nameCtx.roundRect(476 - hashWidth - 20, 36, hashWidth + 24, 56, 12);
-    this.nameCtx.fill();
+    if (this.showUserHash) {
+      // プレイヤー名 (大きめの太字フォント・左寄せ)
+      this.nameCtx.fillStyle = '#ffffff';
+      this.nameCtx.font = 'bold 34px sans-serif';
+      this.nameCtx.textAlign = 'left';
+      this.nameCtx.textBaseline = 'middle';
+      const trimmedName = this.name.length > 8 ? this.name.substring(0, 8) + '..' : this.name;
+      this.nameCtx.fillText(`${icon} ${trimmedName}`, 32, 64);
 
-    // ハッシュ文字
-    this.nameCtx.fillStyle = isGh ? '#6ee7b7' : '#7dd3fc';
-    this.nameCtx.textAlign = 'right';
-    this.nameCtx.fillText(hashText, 476 - 8, 64);
+      // ハッシュバッジ (右寄せで角丸ピル背景付き)
+      const hashText = this.userHash || '~guest';
+      this.nameCtx.font = 'bold 26px monospace';
+      const hashWidth = this.nameCtx.measureText(hashText).width;
+      
+      // ハッシュ用小バッジ背景
+      this.nameCtx.fillStyle = isGh ? 'rgba(16, 185, 129, 0.25)' : 'rgba(56, 189, 248, 0.2)';
+      this.nameCtx.beginPath();
+      this.nameCtx.roundRect(476 - hashWidth - 20, 36, hashWidth + 24, 56, 12);
+      this.nameCtx.fill();
+
+      // ハッシュ文字
+      this.nameCtx.fillStyle = isGh ? '#6ee7b7' : '#7dd3fc';
+      this.nameCtx.textAlign = 'right';
+      this.nameCtx.fillText(hashText, 476 - 8, 64);
+    } else {
+      // ハッシュ非表示時 (中央寄せで大きくバランス良く表示)
+      this.nameCtx.fillStyle = '#ffffff';
+      this.nameCtx.font = 'bold 34px sans-serif';
+      this.nameCtx.textAlign = 'center';
+      this.nameCtx.textBaseline = 'middle';
+      const trimmedName = this.name.length > 12 ? this.name.substring(0, 12) + '..' : this.name;
+      this.nameCtx.fillText(`${icon} ${trimmedName}`, 256, 64);
+    }
 
     this.nameSprite.material.map!.needsUpdate = true;
 
@@ -1933,6 +1950,7 @@ export class VoxelVRMApp {
   private vrmModelAuthor = 'Pixiv';
   private isProfileModalOpen = false;
   private selectedMiniPlayerId: string | null = null; // 簡易詳細小窓で選択中のプレイヤー ('self' または sessionId)
+  private showUserHash = false; // なりすまし防止ハッシュ表示フラグ (デフォルトOFF)
 
   // リモートプレイヤーの認証情報マップ (sessionId -> { authType, userHash, githubUsername })
   private remotePlayerAuth = new Map<string, { authType: string; userHash: string; githubUsername?: string }>();
@@ -2082,6 +2100,7 @@ export class VoxelVRMApp {
           const rp = new RemotePlayerRenderer(id, name);
           rp.group.position.set(x, y, z);
           rp.targetPos.set(x, y, z);
+          rp.showUserHash = this.showUserHash;
           rp.setAuthBadge(authType || 'guest', userHash || '~guest');
           this.scene.add(rp.group);
           this.remotePlayers.set(id, rp);
@@ -2458,6 +2477,9 @@ export class VoxelVRMApp {
         localStorage.setItem('vrm_village_user_hash', this.myUserHash);
       }
     }
+
+    this.showUserHash = localStorage.getItem('vrm_village_show_user_hash') === 'true';
+    document.body.classList.toggle('hide-user-hash', !this.showUserHash);
 
     this.updateProfileBadgeUI();
   }
@@ -2874,6 +2896,23 @@ export class VoxelVRMApp {
       localStorage.removeItem('vrm_village_server_url');
       window.location.href = window.location.pathname;
     });
+
+    // 🛡️ ハッシュ表示のON/OFF切り替え
+    const hashCheckbox = document.getElementById('checkbox-show-hash') as HTMLInputElement | null;
+    if (hashCheckbox) {
+      hashCheckbox.checked = this.showUserHash;
+      hashCheckbox.addEventListener('change', () => {
+        this.showUserHash = hashCheckbox.checked;
+        localStorage.setItem('vrm_village_show_user_hash', String(this.showUserHash));
+        document.body.classList.toggle('hide-user-hash', !this.showUserHash);
+        this.remotePlayers.forEach((rp) => {
+          rp.setShowUserHash(this.showUserHash);
+        });
+        this.updatePlayerListUI();
+        this.sounds.playSelect();
+        this.updateStatus(this.showUserHash ? '🛡️ ハッシュ表示をONにしました' : '🛡️ ハッシュ表示をOFFにしました');
+      });
+    }
   }
 
   // プレイヤー簡易詳細小窓のイベント登録
@@ -2955,6 +2994,10 @@ export class VoxelVRMApp {
       const serverInput = document.getElementById('input-server-url') as HTMLInputElement | null;
       if (serverInput) {
         serverInput.value = getAutoServerUrl();
+      }
+      const hashCheckbox = document.getElementById('checkbox-show-hash') as HTMLInputElement | null;
+      if (hashCheckbox) {
+        hashCheckbox.checked = this.showUserHash;
       }
     }
   }
