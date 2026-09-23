@@ -375,12 +375,18 @@ export class IsometricCameraSystem {
   // 視点モードの切り替え (2.5D ⇄ 3D)
   public toggleMode(): '2.5d' | '3d' {
     this.mode = this.mode === '2.5d' ? '3d' : '2.5d';
+    if (this.mode === '2.5d') {
+      this.snapToNearest45();
+    }
     this.updateCameraPosition();
     return this.mode;
   }
 
   public setMode(mode: '2.5d' | '3d'): void {
     this.mode = mode;
+    if (this.mode === '2.5d') {
+      this.snapToNearest45();
+    }
     this.updateCameraPosition();
   }
 
@@ -400,10 +406,18 @@ export class IsometricCameraSystem {
     this.targetTheta += direction * step;
   }
 
-  // 最も近い45度に吸着スナップ
+  // 3D視点用: スムーズな連続回転 (45度吸着なし)
+  public rotateSmooth(deltaX: number): void {
+    const rotSpeed = 0.0055;
+    this.targetTheta -= deltaX * rotSpeed;
+    this.theta = this.targetTheta;
+    this.updateCameraPosition();
+  }
+
+  // 最も近い45度に吸着スナップ (現在の実角度 this.theta を基準にスナップ)
   public snapToNearest45(): void {
     const step = Math.PI / 4;
-    this.targetTheta = Math.round(this.targetTheta / step) * step;
+    this.targetTheta = Math.round(this.theta / step) * step;
   }
 
   // 左ドラッグ: 地面を直接掴んで動かすパン移動
@@ -3355,22 +3369,33 @@ export class VoxelVRMApp {
         }
       }
 
-      // 右ボタンドラッグ判定 (45度ステップ回転: 45pxドラッグごとにカチッと回転)
+      // 右ボタンドラッグ判定 (3D: スムーズ回転 / 2.5D: 45度ステップ回転)
       if (this.rightMouseDown) {
-        const diffX = e.clientX - this.lastRotateMouseX;
-        const rotateThreshold = 45; // 45px移動ごとに1ステップ(45度)回転
-
-        if (Math.abs(diffX) >= rotateThreshold) {
-          this.hasRightDragged = true;
-          if (canMoveCamera) {
-            // 右ドラッグで時計回り(視点右回転: direction = -1)、左ドラッグで反時計回り(direction = 1)
-            const direction = diffX > 0 ? -1 : 1;
-            this.cameraSys.rotateStep(direction);
-            this.sounds.playSelect();
+        if (this.cameraSys.mode === '3d') {
+          // 3D視点モード: 45度吸着なしでリアルタイムに滑らか回転
+          if (Math.abs(dx) > 0 || Math.hypot(e.clientX - this.rightStartX, e.clientY - this.rightStartY) > 5) {
+            this.hasRightDragged = true;
           }
-          this.lastRotateMouseX = e.clientX;
-        } else if (Math.hypot(e.clientX - this.rightStartX, e.clientY - this.rightStartY) > 5) {
-          this.hasRightDragged = true;
+          if (canMoveCamera && dx !== 0) {
+            this.cameraSys.rotateSmooth(dx);
+          }
+        } else {
+          // 2.5D視点モード: 45pxドラッグごとにカチッと45度刻み回転
+          const diffX = e.clientX - this.lastRotateMouseX;
+          const rotateThreshold = 45; // 45px移動ごとに1ステップ(45度)回転
+
+          if (Math.abs(diffX) >= rotateThreshold) {
+            this.hasRightDragged = true;
+            if (canMoveCamera) {
+              // 右ドラッグで時計回り(視点右回転: direction = -1)、左ドラッグで反時計回り(direction = 1)
+              const direction = diffX > 0 ? -1 : 1;
+              this.cameraSys.rotateStep(direction);
+              this.sounds.playSelect();
+            }
+            this.lastRotateMouseX = e.clientX;
+          } else if (Math.hypot(e.clientX - this.rightStartX, e.clientY - this.rightStartY) > 5) {
+            this.hasRightDragged = true;
+          }
         }
       }
 
@@ -3378,7 +3403,7 @@ export class VoxelVRMApp {
       this.lastMouseY = e.clientY;
     });
 
-    // ポインターアップ (クリック配置・削除 / ドラッグ終了 & 45度吸着)
+    // ポインターアップ (クリック配置・削除 / ドラッグ終了 & 2.5D時のみ45度吸着)
     window.addEventListener('pointerup', (e) => {
       if (e.button === 0) {
         this.leftMouseDown = false;
@@ -3395,7 +3420,8 @@ export class VoxelVRMApp {
         this.isShiftViewMoving = false;
       } else if (e.button === 2) {
         this.rightMouseDown = false;
-        if (!this.isEditMode || this.isShiftViewMoving) {
+        // 2.5Dモード時のみ最も近い45度に吸着スナップ (3Dモード時はスムーズな自由角度を維持)
+        if ((!this.isEditMode || this.isShiftViewMoving) && this.cameraSys.mode === '2.5d') {
           this.cameraSys.snapToNearest45();
         }
 
