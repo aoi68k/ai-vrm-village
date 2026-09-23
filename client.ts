@@ -3845,10 +3845,14 @@ export class VoxelVRMApp {
           x: Math.round(pos.x),
           y: Math.round(pos.y),
           z: Math.round(pos.z),
-          normal: hit.face.normal.clone()
+          normal: new THREE.Vector3(
+            Math.round(hit.face.normal.x),
+            Math.round(hit.face.normal.y),
+            Math.round(hit.face.normal.z)
+          )
         };
 
-        this.cursorMesh.position.set(pos.x, pos.y, pos.z);
+        this.cursorMesh.position.set(this.selectedTarget.x, this.selectedTarget.y, this.selectedTarget.z);
         this.cursorMesh.visible = true;
 
         this.updateGhostPreview(this.selectedTarget);
