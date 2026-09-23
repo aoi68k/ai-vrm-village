@@ -3306,6 +3306,30 @@ export class VoxelVRMApp {
     window.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  // ブラシサイズ（1x1, 2x2, 3x3等）に応じた平面グリッドオフセットを取得
+  private getBrushOffsets(size: number): Array<{ u: number; v: number }> {
+    const offsets: Array<{ u: number; v: number }> = [];
+    if (size <= 1) {
+      offsets.push({ u: 0, v: 0 });
+    } else if (size === 2) {
+      // 2x2: クリックしたマスを基準に 2x2（計4マス）
+      for (let u = 0; u < 2; u++) {
+        for (let v = 0; v < 2; v++) {
+          offsets.push({ u, v });
+        }
+      }
+    } else {
+      // 3x3 等の奇数サイズ: クリックしたマスを中心にした 3x3（計9マス）
+      const r = Math.floor(size / 2);
+      for (let u = -r; u <= r; u++) {
+        for (let v = -r; v <= r; v++) {
+          offsets.push({ u, v });
+        }
+      }
+    }
+    return offsets;
+  }
+
   // --- 配置処理 (単体 / ブラシ / スタンプ) ---
   private handlePlacement(x: number, y: number, z: number, normal: THREE.Vector3): void {
     if (this.currentTool === 'stamp') {
@@ -3331,25 +3355,23 @@ export class VoxelVRMApp {
     const baseNy = y + normal.y;
     const baseNz = z + normal.z;
 
-    const r = Math.floor(this.brushSize / 2);
-    for (let u = -r; u <= r; u++) {
-      for (let v = -r; v <= r; v++) {
-        let px = baseNx;
-        let py = baseNy;
-        let pz = baseNz;
+    const offsets = this.getBrushOffsets(this.brushSize);
+    for (const { u, v } of offsets) {
+      let px = baseNx;
+      let py = baseNy;
+      let pz = baseNz;
 
-        if (Math.abs(normal.y) > 0.5) {
-          px += u;
-          pz += v;
-        } else if (Math.abs(normal.x) > 0.5) {
-          py += u;
-          pz += v;
-        } else {
-          px += u;
-          py += v;
-        }
-        voxelsToPlace.push({ x: px, y: py, z: pz, type: this.selectedVoxelType });
+      if (Math.abs(normal.y) > 0.5) {
+        px += u;
+        pz += v;
+      } else if (Math.abs(normal.x) > 0.5) {
+        py += u;
+        pz += v;
+      } else {
+        px += u;
+        py += v;
       }
+      voxelsToPlace.push({ x: px, y: py, z: pz, type: this.selectedVoxelType });
     }
 
     if (this.world.addVoxelsBatch(voxelsToPlace)) {
@@ -3366,26 +3388,24 @@ export class VoxelVRMApp {
   // --- 削除処理 (単体 / ブラシ) ---
   private handleRemoval(x: number, y: number, z: number, normal: THREE.Vector3): void {
     const coordsToRemove: Array<{ x: number; y: number; z: number }> = [];
-    const r = Math.floor(this.brushSize / 2);
+    const offsets = this.getBrushOffsets(this.brushSize);
 
-    for (let u = -r; u <= r; u++) {
-      for (let v = -r; v <= r; v++) {
-        let px = x;
-        let py = y;
-        let pz = z;
+    for (const { u, v } of offsets) {
+      let px = x;
+      let py = y;
+      let pz = z;
 
-        if (Math.abs(normal.y) > 0.5) {
-          px += u;
-          pz += v;
-        } else if (Math.abs(normal.x) > 0.5) {
-          py += u;
-          pz += v;
-        } else {
-          px += u;
-          py += v;
-        }
-        coordsToRemove.push({ x: px, y: py, z: pz });
+      if (Math.abs(normal.y) > 0.5) {
+        px += u;
+        pz += v;
+      } else if (Math.abs(normal.x) > 0.5) {
+        py += u;
+        pz += v;
+      } else {
+        px += u;
+        py += v;
       }
+      coordsToRemove.push({ x: px, y: py, z: pz });
     }
 
     const mainType = this.world.getVoxelType(x, y, z);
@@ -3810,23 +3830,21 @@ export class VoxelVRMApp {
     const boxGeo = new THREE.BoxGeometry(0.99, 0.99, 0.99);
 
     if (this.currentTool === 'destroy') {
-      const r = Math.floor(this.brushSize / 2);
       const redMat = new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.55 });
+      const offsets = this.getBrushOffsets(this.brushSize);
 
-      for (let u = -r; u <= r; u++) {
-        for (let v = -r; v <= r; v++) {
-          let px = x;
-          let py = y;
-          let pz = z;
+      for (const { u, v } of offsets) {
+        let px = x;
+        let py = y;
+        let pz = z;
 
-          if (Math.abs(normal.y) > 0.5) { px += u; pz += v; }
-          else if (Math.abs(normal.x) > 0.5) { py += u; pz += v; }
-          else { px += u; py += v; }
+        if (Math.abs(normal.y) > 0.5) { px += u; pz += v; }
+        else if (Math.abs(normal.x) > 0.5) { py += u; pz += v; }
+        else { px += u; py += v; }
 
-          const ghost = new THREE.Mesh(boxGeo, redMat);
-          ghost.position.set(px, py, pz);
-          this.ghostGroup.add(ghost);
-        }
+        const ghost = new THREE.Mesh(boxGeo, redMat);
+        ghost.position.set(px, py, pz);
+        this.ghostGroup.add(ghost);
       }
     } else if (this.currentTool === 'stamp') {
       const originX = x + normal.x;
@@ -3842,7 +3860,6 @@ export class VoxelVRMApp {
         this.ghostGroup.add(ghost);
       });
     } else {
-      const r = Math.floor(this.brushSize / 2);
       const col = this.world.getVoxelColor(this.selectedVoxelType);
       const mat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.6 });
 
@@ -3850,20 +3867,19 @@ export class VoxelVRMApp {
       const baseNy = y + normal.y;
       const baseNz = z + normal.z;
 
-      for (let u = -r; u <= r; u++) {
-        for (let v = -r; v <= r; v++) {
-          let px = baseNx;
-          let py = baseNy;
-          let pz = baseNz;
+      const offsets = this.getBrushOffsets(this.brushSize);
+      for (const { u, v } of offsets) {
+        let px = baseNx;
+        let py = baseNy;
+        let pz = baseNz;
 
-          if (Math.abs(normal.y) > 0.5) { px += u; pz += v; }
-          else if (Math.abs(normal.x) > 0.5) { py += u; pz += v; }
-          else { px += u; py += v; }
+        if (Math.abs(normal.y) > 0.5) { px += u; pz += v; }
+        else if (Math.abs(normal.x) > 0.5) { py += u; pz += v; }
+        else { px += u; py += v; }
 
-          const ghost = new THREE.Mesh(boxGeo, mat);
-          ghost.position.set(px, py, pz);
-          this.ghostGroup.add(ghost);
-        }
+        const ghost = new THREE.Mesh(boxGeo, mat);
+        ghost.position.set(px, py, pz);
+        this.ghostGroup.add(ghost);
       }
     }
 
