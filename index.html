@@ -735,24 +735,30 @@
       color: #38bdf8;
     }
 
-    /* 下部中央 ミニパレット (編集モード時のみ表示) */
+    /* 上部中央 ミニパレット (編集モード時のみ表示) */
+    .top-center-bar,
     .bottom-center-bar {
-      align-self: center;
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
       display: none;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
-      animation: paletteFadeUp 0.25s ease-out;
+      gap: 6px;
+      z-index: 100;
+      pointer-events: auto;
+      animation: paletteFadeDown 0.25s ease-out;
     }
 
-    @keyframes paletteFadeUp {
+    @keyframes paletteFadeDown {
       from {
         opacity: 0;
-        transform: translateY(12px);
+        transform: translate(-50%, -14px);
       }
       to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translate(-50%, 0);
       }
     }
 
@@ -1299,6 +1305,40 @@
           <div class="npc-bubble" id="npc-message">「何か手伝えることはあるかな？」</div>
         </div>
       </div>
+    <!-- 🧱 画面上部中央 クイックブロックパレット (編集モード時のみ表示) -->
+    <div class="top-center-bar">
+      <div id="quick-palette" class="glass-card">
+        <div class="quick-slot active" data-type="grass" data-key="1">
+          <span class="slot-key">1</span>
+          <div class="slot-color" style="background: #55aa44;"></div>
+          <span class="slot-name">草地</span>
+        </div>
+        <div class="quick-slot" data-type="dirt" data-key="2">
+          <span class="slot-key">2</span>
+          <div class="slot-color" style="background: #8b5a2b;"></div>
+          <span class="slot-name">土</span>
+        </div>
+        <div class="quick-slot" data-type="stone" data-key="3">
+          <span class="slot-key">3</span>
+          <div class="slot-color" style="background: #777788;"></div>
+          <span class="slot-name">石</span>
+        </div>
+        <div class="quick-slot" data-type="wood" data-key="4">
+          <span class="slot-key">4</span>
+          <div class="slot-color" style="background: #5c4033;"></div>
+          <span class="slot-name">原木</span>
+        </div>
+        <div class="quick-slot" data-type="leaves" data-key="5">
+          <span class="slot-key">5</span>
+          <div class="slot-color" style="background: #3e8e41;"></div>
+          <span class="slot-name">葉</span>
+        </div>
+        <div class="quick-slot" data-type="plank" data-key="6">
+          <span class="slot-key">6</span>
+          <div class="slot-color" style="background: #c4a482;"></div>
+          <span class="slot-name">木板</span>
+        </div>
+      </div>
     </div>
 
     <!-- Bottom Area -->
@@ -1327,45 +1367,6 @@
           <div><span class="key-badge">E</span> / 右上ボタン: <b>編集終了（散策へ）</b></div>
         </div>
       </div>
-
-      <!-- Quick Palette (Bottom Center) -->
-      <div class="bottom-center-bar">
-        <div id="quick-palette" class="glass-card">
-          <div class="quick-slot active" data-type="grass" data-key="1">
-            <span class="slot-key">1</span>
-            <div class="slot-color" style="background: #55aa44;"></div>
-            <span class="slot-name">草地</span>
-          </div>
-          <div class="quick-slot" data-type="dirt" data-key="2">
-            <span class="slot-key">2</span>
-            <div class="slot-color" style="background: #8b5a2b;"></div>
-            <span class="slot-name">土</span>
-          </div>
-          <div class="quick-slot" data-type="stone" data-key="3">
-            <span class="slot-key">3</span>
-            <div class="slot-color" style="background: #777788;"></div>
-            <span class="slot-name">石</span>
-          </div>
-          <div class="quick-slot" data-type="wood" data-key="4">
-            <span class="slot-key">4</span>
-            <div class="slot-color" style="background: #5c4033;"></div>
-            <span class="slot-name">原木</span>
-          </div>
-          <div class="quick-slot" data-type="leaves" data-key="5">
-            <span class="slot-key">5</span>
-            <div class="slot-color" style="background: #3e8e41;"></div>
-            <span class="slot-name">葉</span>
-          </div>
-          <div class="quick-slot" data-type="plank" data-key="6">
-            <span class="slot-key">6</span>
-            <div class="slot-color" style="background: #c4a482;"></div>
-            <span class="slot-name">木板</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Spacer for balance -->
-      <div style="width: 280px;"></div>
     </div>
   </div>
 

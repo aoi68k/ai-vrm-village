@@ -3583,7 +3583,7 @@ export class VoxelVRMApp {
     // 操作ガイド & 土地パレットの出し分け切り替え
     const guidePlay = document.getElementById('guide-play');
     const guideEdit = document.getElementById('guide-edit');
-    const quickPaletteBar = document.querySelector<HTMLElement>('.bottom-center-bar');
+    const quickPaletteBar = document.querySelector<HTMLElement>('.top-center-bar, .bottom-center-bar');
 
     if (this.isEditMode) {
       drawer?.classList.add('open');
