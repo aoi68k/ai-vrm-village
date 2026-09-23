@@ -3174,6 +3174,24 @@ export class VoxelVRMApp {
 
     this.updateAvatarToggleBtnUI();
 
+    // 📂 ローカルVRMファイル選択ダイアログ
+    const selectVrmFileBtn = document.getElementById('btn-select-vrm-file');
+    const selectVrmFileInput = document.getElementById('input-select-vrm-file') as HTMLInputElement | null;
+
+    selectVrmFileBtn?.addEventListener('click', () => {
+      if (selectVrmFileInput) {
+        selectVrmFileInput.value = '';
+        selectVrmFileInput.click();
+      }
+    });
+
+    selectVrmFileInput?.addEventListener('change', async () => {
+      const file = selectVrmFileInput.files?.[0];
+      if (file) {
+        await this.loadVRMFile(file);
+      }
+    });
+
     // サンプルVRMの読み込みボタン
     const loadSampleBtn = document.getElementById('btn-load-sample-vrm');
     loadSampleBtn?.addEventListener('click', async () => {
@@ -4164,23 +4182,32 @@ export class VoxelVRMApp {
     });
   }
 
+  // ローカルVRMファイル（D&D または ファイル選択ダイアログ）の適用処理
+  public async loadVRMFile(file: File): Promise<void> {
+    if (!file.name.toLowerCase().endsWith('.vrm')) {
+      this.updateStatus('⚠️ VRM形式 (.vrm) のファイルを選択してください');
+      return;
+    }
+    const blobUrl = URL.createObjectURL(file);
+    this.updateStatus(`VRMモデル読み込み中: ${file.name}...`);
+    try {
+      const vrm = await this.avatar.loadVRMFromUrl(blobUrl);
+      this.onAvatarModelLoaded(vrm, file.name);
+      this.sounds.playDoorbell();
+      this.updateStatus(`✅ VRMモデル適用: ${file.name}`);
+    } catch (err) {
+      console.error('VRM読み込みエラー:', err);
+      this.updateStatus(`❌ VRM読み込み失敗: ${file.name}`);
+    }
+  }
+
   private setupDragAndDrop(): void {
     window.addEventListener('dragover', (e) => e.preventDefault());
     window.addEventListener('drop', async (e) => {
       e.preventDefault();
       const files = e.dataTransfer?.files;
-      if (files && files.length > 0 && files[0].name.endsWith('.vrm')) {
-        const blobUrl = URL.createObjectURL(files[0]);
-        this.updateStatus(`VRMモデル読み込み中: ${files[0].name}...`);
-        try {
-          const vrm = await this.avatar.loadVRMFromUrl(blobUrl);
-          this.onAvatarModelLoaded(vrm, files[0].name);
-          this.sounds.playDoorbell();
-          this.updateStatus(`✅ VRMモデル適用: ${files[0].name}`);
-        } catch (err) {
-          console.error('VRM読み込みエラー:', err);
-          this.updateStatus(`❌ VRM読み込み失敗: ${files[0].name}`);
-        }
+      if (files && files.length > 0 && files[0].name.toLowerCase().endsWith('.vrm')) {
+        await this.loadVRMFile(files[0]);
       }
     });
   }
