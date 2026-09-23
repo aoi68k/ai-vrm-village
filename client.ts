@@ -512,14 +512,14 @@ export class IsometricCameraSystem {
     this.updateCameraPosition();
   }
 
-  // マウスホイールズーム (2.5D: 0.4〜4.0倍, 3D: 距離 5.0〜45.0)
+  // マウスホイールズーム (2.5D: 0.4〜8.0倍, 3D: 距離 2.0〜50.0)
   public handleZoom(deltaY: number): void {
     if (this.mode === '2.5d') {
-      this.zoomLevel = THREE.MathUtils.clamp(this.zoomLevel - deltaY * 0.0012, 0.4, 4.0);
+      this.zoomLevel = THREE.MathUtils.clamp(this.zoomLevel - deltaY * 0.0012, 0.4, 8.0);
       this.orthoCamera.zoom = this.zoomLevel;
       this.orthoCamera.updateProjectionMatrix();
     } else {
-      this.perspDistance = THREE.MathUtils.clamp(this.perspDistance + deltaY * 0.016, 5.0, 45.0);
+      this.perspDistance = THREE.MathUtils.clamp(this.perspDistance + deltaY * 0.016, 2.0, 50.0);
       this.updateCameraPosition();
     }
   }
