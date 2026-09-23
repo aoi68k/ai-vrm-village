@@ -1544,7 +1544,11 @@
             <span>作者:</span>
             <span id="modal-vrm-author" class="modal-val">システム</span>
           </div>
-          <div style="margin-top: 8px;">
+          <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <!-- VRM投入後に表示されるアバター切り替えボタン -->
+            <button id="btn-toggle-avatar-model" class="chat-btn" style="display: none; font-size: 11px; padding: 5px 12px; background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+              📦 ボックスマンに切り替え
+            </button>
             <button id="btn-load-sample-vrm" class="chat-btn" style="font-size: 11px; padding: 5px 12px; background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
               📥 PixivサンプルVRMを試す
             </button>

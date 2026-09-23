@@ -492,6 +492,7 @@ export class VRMAvatarController {
   public position = new THREE.Vector3(0, 0.5, 0);
   public rotationY = 0;
   public currentState: AvatarState = 'idle';
+  public avatarMode: 'vrm' | 'boxman' = 'vrm';
 
   // VRM読み込み前の自キャラ用ボックスマン
   public boxmanGroup = new THREE.Group();
@@ -541,6 +542,51 @@ export class VRMAvatarController {
 
     this.boxmanGroup.position.copy(this.position);
     this.scene.add(this.boxmanGroup);
+
+    // 保存されたVRM配色があればボックスマンに復帰適用
+    const savedColors = localStorage.getItem('vrm_village_boxman_colors');
+    if (savedColors) {
+      try {
+        const c = JSON.parse(savedColors);
+        if (c.hair && c.skin && c.clothing) {
+          this.setColors(c.hair, c.skin, c.clothing);
+        }
+      } catch (e) {}
+    }
+  }
+
+  // VRM由来の配色をボックスマンに適用 (hair→頭, skin→腕, clothing→胴体)
+  public setColors(hair: string, skin: string, clothing: string): void {
+    const headMat = this.head.material as THREE.MeshStandardMaterial;
+    const bodyMat = this.body.material as THREE.MeshStandardMaterial;
+    const lArmMat = this.leftArm.material as THREE.MeshStandardMaterial;
+    const rArmMat = this.rightArm.material as THREE.MeshStandardMaterial;
+    if (headMat) { headMat.color.set(hair); headMat.needsUpdate = true; }
+    if (bodyMat) { bodyMat.color.set(clothing); bodyMat.needsUpdate = true; }
+    if (lArmMat) { lArmMat.color.set(skin); lArmMat.needsUpdate = true; }
+    if (rArmMat) { rArmMat.color.set(skin); rArmMat.needsUpdate = true; }
+  }
+
+  // アバター表示モードの切り替え (VRM ⇄ ボックスマン)
+  public setAvatarMode(mode: 'vrm' | 'boxman'): void {
+    this.avatarMode = mode;
+    if (mode === 'boxman' || !this.vrm) {
+      if (this.vrm) this.vrm.scene.visible = false;
+      this.boxmanGroup.visible = true;
+      this.boxmanGroup.traverse((c) => { c.visible = true; });
+      this.boxmanGroup.position.copy(this.position);
+    } else {
+      if (this.vrm) this.vrm.scene.visible = true;
+      this.boxmanGroup.visible = false;
+      this.boxmanGroup.traverse((c) => { c.visible = false; });
+      this.boxmanGroup.position.set(0, -999, 0);
+    }
+  }
+
+  public toggleAvatarMode(): 'vrm' | 'boxman' {
+    const nextMode = this.avatarMode === 'vrm' ? 'boxman' : 'vrm';
+    this.setAvatarMode(nextMode);
+    return nextMode;
   }
 
   public async loadVRMFromUrl(url: string, onProgress?: (percent: number) => void): Promise<VRM | null> {
@@ -576,9 +622,7 @@ export class VRMAvatarController {
           this.vrm = vrm;
           this.scene.add(vrm.scene);
           vrm.scene.position.copy(this.position);
-          this.boxmanGroup.visible = false; // VRMが読み込まれたのでボックスマンを隠す
-          this.boxmanGroup.traverse((c) => { c.visible = false; });
-          this.boxmanGroup.position.set(0, -999, 0); // 地下に退避
+          this.setAvatarMode('vrm');
           
           // ロード直後から両腕を自然に下ろした立ちポーズを適用
           this.applyIdlePose(1.0);
@@ -683,8 +727,11 @@ export class VRMAvatarController {
       }
     }
 
-    if (this.vrm) {
+    const showVrm = this.vrm && this.avatarMode === 'vrm';
+
+    if (showVrm && this.vrm) {
       this.boxmanGroup.visible = false;
+      this.vrm.scene.visible = true;
       this.vrm.scene.position.copy(this.position);
       this.vrm.scene.rotation.y = this.rotationY;
 
@@ -692,8 +739,11 @@ export class VRMAvatarController {
       this.animateExpressions(delta);
       this.vrm.update(delta);
     } else {
-      // VRM読み込み前の自キャラボックスマンのアニメーション
+      if (this.vrm) {
+        this.vrm.scene.visible = false;
+      }
       this.boxmanGroup.visible = true;
+      this.boxmanGroup.traverse((c) => { c.visible = true; });
       this.boxmanGroup.position.copy(this.position);
       this.boxmanGroup.rotation.y = this.rotationY;
 
@@ -2660,12 +2710,41 @@ export class VoxelVRMApp {
       });
     }
 
-    // VRMテクスチャおよび顔写真から代表色を抽出してサーバーへ送信
-    // → 相手のボックスマンをVRM配色に変更するため
+    // VRMテクスチャおよび顔写真から代表色を抽出してサーバーへ送信 ＆ 自キャラボックスマンに反映
     this.extractVRMColors(vrm, faceDataUrl).then((extractedColors) => {
       console.log('🎨 [VRM Colors Sending to Server]:', extractedColors);
       this.network.sendPlayerColors(extractedColors.hair, extractedColors.skin, extractedColors.clothing);
+      // 💡 ボックスマンにVRMの配色を反映
+      this.avatar.setColors(extractedColors.hair, extractedColors.skin, extractedColors.clothing);
+      localStorage.setItem('vrm_village_boxman_colors', JSON.stringify(extractedColors));
     });
+
+    this.updateAvatarToggleBtnUI();
+  }
+
+  // アバター情報モーダル内のVRM / ボックスマン切り替えボタンUI更新
+  private updateAvatarToggleBtnUI(): void {
+    const toggleAvatarBtn = document.getElementById('btn-toggle-avatar-model');
+    if (!toggleAvatarBtn) return;
+    if (!this.avatar.vrm) {
+      toggleAvatarBtn.style.display = 'none';
+      return;
+    }
+    toggleAvatarBtn.style.display = 'inline-flex';
+    const modalTitleEl = document.getElementById('modal-vrm-title');
+    if (this.avatar.avatarMode === 'vrm') {
+      toggleAvatarBtn.innerHTML = '📦 ボックスマンに切り替え';
+      toggleAvatarBtn.style.background = 'rgba(56, 189, 248, 0.2)';
+      toggleAvatarBtn.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+      toggleAvatarBtn.style.color = '#38bdf8';
+      if (modalTitleEl) modalTitleEl.innerText = this.vrmModelTitle;
+    } else {
+      toggleAvatarBtn.innerHTML = '👤 投入したVRMに切り替え';
+      toggleAvatarBtn.style.background = 'rgba(16, 185, 129, 0.2)';
+      toggleAvatarBtn.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+      toggleAvatarBtn.style.color = '#6ee7b7';
+      if (modalTitleEl) modalTitleEl.innerText = `${this.vrmModelTitle} (ボックスマン表示中)`;
+    }
   }
 
   // VRMのテクスチャおよび顔写真から Hair / Skin / Clothing の代表色を抽出
@@ -2933,6 +3012,21 @@ export class VoxelVRMApp {
       window.open(window.location.href, '_blank');
       this.sounds.playSelect();
     });
+
+    // 👤 VRM ⇄ ボックスマン 表示切り替えボタン
+    const toggleAvatarBtn = document.getElementById('btn-toggle-avatar-model');
+    toggleAvatarBtn?.addEventListener('click', () => {
+      const nextMode = this.avatar.toggleAvatarMode();
+      this.updateAvatarToggleBtnUI();
+      this.sounds.playSelect();
+      if (nextMode === 'boxman') {
+        this.updateStatus('📦 アバター表示をボックスマンに切り替えました（VRM配色適用中）');
+      } else {
+        this.updateStatus(`👤 アバター表示をVRMモデル (${this.vrmModelTitle}) に切り替えました`);
+      }
+    });
+
+    this.updateAvatarToggleBtnUI();
 
     // サンプルVRMの読み込みボタン
     const loadSampleBtn = document.getElementById('btn-load-sample-vrm');
