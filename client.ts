@@ -409,7 +409,7 @@ export class IsometricCameraSystem {
   // 3D視点用: スムーズな連続回転 (45度吸着なし)
   public rotateSmooth(deltaX: number): void {
     const rotSpeed = 0.0055;
-    this.targetTheta -= deltaX * rotSpeed;
+    this.targetTheta += deltaX * rotSpeed;
     this.theta = this.targetTheta;
     this.updateCameraPosition();
   }
@@ -3387,8 +3387,8 @@ export class VoxelVRMApp {
           if (Math.abs(diffX) >= rotateThreshold) {
             this.hasRightDragged = true;
             if (canMoveCamera) {
-              // 右ドラッグで時計回り(視点右回転: direction = -1)、左ドラッグで反時計回り(direction = 1)
-              const direction = diffX > 0 ? -1 : 1;
+              // 右ドラッグで反時計回り(direction = 1)、左ドラッグで時計回り(direction = -1)
+              const direction = diffX > 0 ? 1 : -1;
               this.cameraSys.rotateStep(direction);
               this.sounds.playSelect();
             }
