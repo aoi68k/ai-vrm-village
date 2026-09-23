@@ -297,41 +297,91 @@ export function isColorTooWhiteOrInvalid(hex?: string | null): boolean {
 }
 
 // ============================================================================
-// 1. クォータービュー カメラシステム (360度旋回・自由パン・ズーム・視点連動)
+// 1. クォータービュー / 3Dパースペクティブ ハイブリッドカメラシステム
 // ============================================================================
 export class IsometricCameraSystem {
-  public camera: THREE.OrthographicCamera;
+  public orthoCamera: THREE.OrthographicCamera;
+  public perspCamera: THREE.PerspectiveCamera;
+  public mode: '2.5d' | '3d' = '2.5d';
   private aspect: number;
   public targetPosition = new THREE.Vector3(0, 0, 0);
 
   // 球座標パラメータ
   public theta: number = Math.PI / 4; // 現在の水平角度 (初期45度)
   public targetTheta: number = Math.PI / 4; // 45度吸着目標角度
-  public elevation: number = 0.6154797; // 見下ろし角度 (約35.264度: atan(1/√2))
-  public distance: number = 138.564; // カメラ距離 (80 * √3)
-  private zoomLevel = 2.25; // 初期拡大率 (キャラとワールドが近くしっかり見える距離感)
+  public elevation: number = 0.6154797; // 2.5D見下ろし角度 (約35.264度: atan(1/√2))
+  public distance: number = 138.564; // 2.5Dカメラ距離 (80 * √3)
+  private zoomLevel = 2.25; // 2.5D初期拡大率 (キャラとワールドが近くしっかり見える距離感)
+
+  // 3Dパースペクティブ視点パラメータ
+  public perspDistance: number = 15.0; // 3Dカメラ距離 (6.0〜45.0)
+  public perspElevation: number = 0.58; // 3D見下ろし角度 (約33度)
+
   public isFollowingAvatar = true; // アバター追従フラグ
+
+  public get camera(): THREE.Camera {
+    return this.mode === '2.5d' ? this.orthoCamera : this.perspCamera;
+  }
+
+  // 画面ピクセルとワールド座標スケール整合用の実効ズーム倍率
+  public get effectiveZoom(): number {
+    if (this.mode === '2.5d') {
+      return this.orthoCamera.zoom;
+    }
+    return 50 / (2 * this.perspDistance * Math.tan((45 * Math.PI) / 360));
+  }
 
   constructor(aspectRatio: number, frustumSize: number = 25) {
     this.aspect = aspectRatio;
     const d = frustumSize;
-    this.camera = new THREE.OrthographicCamera(
+    this.orthoCamera = new THREE.OrthographicCamera(
       -d * this.aspect, d * this.aspect, d, -d, 1, 1000
     );
-    this.camera.zoom = this.zoomLevel;
-    this.camera.updateProjectionMatrix();
+    this.orthoCamera.zoom = this.zoomLevel;
+    this.orthoCamera.updateProjectionMatrix();
+
+    this.perspCamera = new THREE.PerspectiveCamera(45, this.aspect, 0.2, 600);
+
+    const savedMode = localStorage.getItem('vrm_village_camera_mode') as '2.5d' | '3d' | null;
+    if (savedMode === '3d' || savedMode === '2.5d') {
+      this.mode = savedMode;
+    }
+
     this.updateCameraPosition();
   }
 
-  // カメラ位置の再計算と注視点更新
+  // カメラ位置の再計算と注視点更新 (両方のカメラを同期)
   public updateCameraPosition(): void {
-    const hDist = this.distance * Math.cos(this.elevation);
-    const camY = this.targetPosition.y + this.distance * Math.sin(this.elevation);
-    const camX = this.targetPosition.x + hDist * Math.cos(this.theta);
-    const camZ = this.targetPosition.z + hDist * Math.sin(this.theta);
+    // 2.5D Orthographic カメラ更新
+    const orthoHDist = this.distance * Math.cos(this.elevation);
+    const orthoCamY = this.targetPosition.y + this.distance * Math.sin(this.elevation);
+    const orthoCamX = this.targetPosition.x + orthoHDist * Math.cos(this.theta);
+    const orthoCamZ = this.targetPosition.z + orthoHDist * Math.sin(this.theta);
 
-    this.camera.position.set(camX, camY, camZ);
-    this.camera.lookAt(this.targetPosition);
+    this.orthoCamera.position.set(orthoCamX, orthoCamY, orthoCamZ);
+    this.orthoCamera.lookAt(this.targetPosition);
+
+    // 3D Perspective カメラ更新
+    const perspHDist = this.perspDistance * Math.cos(this.perspElevation);
+    const perspCamY = this.targetPosition.y + this.perspDistance * Math.sin(this.perspElevation);
+    const perspCamX = this.targetPosition.x + perspHDist * Math.cos(this.theta);
+    const perspCamZ = this.targetPosition.z + perspHDist * Math.sin(this.theta);
+
+    this.perspCamera.position.set(perspCamX, perspCamY, perspCamZ);
+    // 3D視点ではキャラクターの胸元・頭部付近 (y + 0.8) を注視
+    this.perspCamera.lookAt(this.targetPosition.x, this.targetPosition.y + 0.8, this.targetPosition.z);
+  }
+
+  // 視点モードの切り替え (2.5D ⇄ 3D)
+  public toggleMode(): '2.5d' | '3d' {
+    this.mode = this.mode === '2.5d' ? '3d' : '2.5d';
+    this.updateCameraPosition();
+    return this.mode;
+  }
+
+  public setMode(mode: '2.5d' | '3d'): void {
+    this.mode = mode;
+    this.updateCameraPosition();
   }
 
   // アバター追従更新 (パン操作されていない場合のみ追従、45度吸着目標角度へ滑らかに補間)
@@ -359,7 +409,10 @@ export class IsometricCameraSystem {
   // 左ドラッグ: 地面を直接掴んで動かすパン移動
   public pan(deltaScreenX: number, deltaScreenY: number): void {
     this.isFollowingAvatar = false;
-    const factor = (25 / (this.camera.zoom * window.innerHeight)) * 2.2;
+    const factor = this.mode === '2.5d'
+      ? (25 / (this.orthoCamera.zoom * window.innerHeight)) * 2.2
+      : (2 * this.perspDistance * Math.tan((45 * Math.PI) / 360)) / window.innerHeight;
+
     const right = this.getRightOnPlane();
     const forward = this.getForwardOnPlane();
 
@@ -369,11 +422,16 @@ export class IsometricCameraSystem {
     this.updateCameraPosition();
   }
 
-  // マウスホイールズーム (0.4〜4.0倍)
+  // マウスホイールズーム (2.5D: 0.4〜4.0倍, 3D: 距離 5.0〜45.0)
   public handleZoom(deltaY: number): void {
-    this.zoomLevel = THREE.MathUtils.clamp(this.zoomLevel - deltaY * 0.0012, 0.4, 4.0);
-    this.camera.zoom = this.zoomLevel;
-    this.camera.updateProjectionMatrix();
+    if (this.mode === '2.5d') {
+      this.zoomLevel = THREE.MathUtils.clamp(this.zoomLevel - deltaY * 0.0012, 0.4, 4.0);
+      this.orthoCamera.zoom = this.zoomLevel;
+      this.orthoCamera.updateProjectionMatrix();
+    } else {
+      this.perspDistance = THREE.MathUtils.clamp(this.perspDistance + deltaY * 0.016, 5.0, 45.0);
+      this.updateCameraPosition();
+    }
   }
 
   // 自キャラ追従への復帰
@@ -399,11 +457,14 @@ export class IsometricCameraSystem {
   public handleResize(width: number, height: number): void {
     this.aspect = width / height;
     const d = 25;
-    this.camera.left = -d * this.aspect;
-    this.camera.right = d * this.aspect;
-    this.camera.top = d;
-    this.camera.bottom = -d;
-    this.camera.updateProjectionMatrix();
+    this.orthoCamera.left = -d * this.aspect;
+    this.orthoCamera.right = d * this.aspect;
+    this.orthoCamera.top = d;
+    this.orthoCamera.bottom = -d;
+    this.orthoCamera.updateProjectionMatrix();
+
+    this.perspCamera.aspect = this.aspect;
+    this.perspCamera.updateProjectionMatrix();
   }
 }
 
@@ -3708,6 +3769,40 @@ export class VoxelVRMApp {
       this.updateStatus('🤖 お手伝いピコにカメラを合わせました（WASDキーで自キャラに戻ります）');
     });
 
+    // 2.5D / 3D 視点切り替えボタン
+    const camModeBtn = document.getElementById('btn-toggle-camera-mode');
+    const camModeIcon = document.getElementById('cam-mode-icon');
+    const camModeText = document.getElementById('cam-mode-text');
+
+    const updateCamModeBtnUI = (mode: '2.5d' | '3d') => {
+      if (camModeIcon && camModeText) {
+        if (mode === '3d') {
+          camModeIcon.innerText = '🌐';
+          camModeText.innerText = '3D';
+          camModeBtn?.setAttribute('title', '2.5D（クォータービュー）視点に切り替え');
+        } else {
+          camModeIcon.innerText = '📐';
+          camModeText.innerText = '2.5D';
+          camModeBtn?.setAttribute('title', '3D（パースペクティブ）視点に切り替え');
+        }
+      }
+    };
+
+    updateCamModeBtnUI(this.cameraSys.mode);
+
+    camModeBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const newMode = this.cameraSys.toggleMode();
+      localStorage.setItem('vrm_village_camera_mode', newMode);
+      updateCamModeBtnUI(newMode);
+      this.sounds.playSelect();
+      if (newMode === '3d') {
+        this.updateStatus('📷 視点切り替え: 3D（パースペクティブ視点）');
+      } else {
+        this.updateStatus('📷 視点切り替え: 2.5D（クォータービュー視点）');
+      }
+    });
+
     // ピコ頭上吹き出しのON/OFFトグル
     const picoBubbleToggleBtn = document.getElementById('btn-toggle-pico-bubble');
     picoBubbleToggleBtn?.addEventListener('click', (e) => {
@@ -3978,7 +4073,7 @@ export class VoxelVRMApp {
     }
     this.wasMovingLastFrame = isMoving;
 
-    const currentCamZoom = this.cameraSys.camera.zoom;
+    const currentCamZoom = this.cameraSys.effectiveZoom;
 
     this.particles.update(delta);
     this.remotePlayers.forEach((rp) => {
