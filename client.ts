@@ -123,10 +123,25 @@ export function captureVRMTextures(
     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(vrm.scene.quaternion);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(vrm.scene.quaternion);
 
-    // 1. 顔用カメラ (正方形 256x256, FOV 22度: ボックスマン頭部 0.4x0.4 の正方形に適合)
-    const faceCam = new THREE.PerspectiveCamera(22, 1, 0.1, 20);
-    faceCam.position.copy(headWorldPos).addScaledVector(forward, 0.65).add(new THREE.Vector3(0, 0.02, 0));
-    faceCam.lookAt(headWorldPos.x, headWorldPos.y + 0.01, headWorldPos.z);
+    // 💡 顔の中心（目・鼻の高さ）を算出
+    // VRMのheadボーンは顎下ピボットのため、目ボーンまたは+0.09m上を注視中心にして肩の映り込みを防ぎ頭頂部を収める
+    const eyeNode = vrm.humanoid?.getNormalizedBoneNode('leftEye')
+      || vrm.humanoid?.getNormalizedBoneNode('rightEye')
+      || vrm.humanoid?.getRawBoneNode('leftEye');
+    const faceCenter = new THREE.Vector3();
+    if (eyeNode) {
+      eyeNode.getWorldPosition(faceCenter);
+      faceCenter.y -= 0.02; // 目と鼻の間付近
+    } else {
+      faceCenter.copy(headWorldPos).add(new THREE.Vector3(0, 0.09, 0));
+    }
+
+    // 1. 顔用カメラ (正方形 256x256: ボックスマン頭部 0.4x0.4 の正方形に適合)
+    // 肩・胸元は映さず、頭頂の髪の毛〜首元までをバランス良くフレーミング
+    const faceCam = new THREE.PerspectiveCamera(23, 1, 0.1, 20);
+    const faceDist = 0.78;
+    faceCam.position.copy(faceCenter).addScaledVector(forward, faceDist);
+    faceCam.lookAt(faceCenter);
 
     // 2. 首から下・胴体用カメラ (5:7比率 256x358: ボックスマン胴体 0.5x0.7 の比率に適合)
     const groundY = vrm.scene.position.y;
@@ -151,8 +166,8 @@ export function captureVRMTextures(
       .normalize();
 
     const headKeyLight = new THREE.DirectionalLight(0xfffaee, 2.2);
-    headKeyLight.position.copy(headWorldPos).addScaledVector(keyDir, 2.2);
-    headKeyLight.target.position.copy(headWorldPos);
+    headKeyLight.position.copy(faceCenter).addScaledVector(keyDir, 2.2);
+    headKeyLight.target.position.copy(faceCenter);
     captureScene.add(headKeyLight);
     captureScene.add(headKeyLight.target);
     disposables.push(headKeyLight);
