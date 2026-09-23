@@ -439,6 +439,7 @@ export class IsometricCameraSystem {
     this.mode = this.mode === '2.5d' ? '3d' : '2.5d';
     if (this.mode === '2.5d') {
       this.snapToNearest45();
+      this.perspElevation = 0.58; // 2.5Dに戻した時は3D仰角も標準角(約33度)にリセット
     }
     this.updateCameraPosition();
     return this.mode;
@@ -448,6 +449,7 @@ export class IsometricCameraSystem {
     this.mode = mode;
     if (this.mode === '2.5d') {
       this.snapToNearest45();
+      this.perspElevation = 0.58;
     }
     this.updateCameraPosition();
   }
@@ -468,11 +470,23 @@ export class IsometricCameraSystem {
     this.targetTheta += direction * step;
   }
 
-  // 3D視点用: スムーズな連続回転 (45度吸着なし)
-  public rotateSmooth(deltaX: number): void {
+  // 3D視点用: スムーズな連続回転 (水平Yaw & 上下Pitch/Elevation)
+  public rotateSmooth(deltaX: number, deltaY: number = 0): void {
+    // 水平方向 (Yaw)
     const rotSpeed = 0.0055;
     this.targetTheta += deltaX * rotSpeed;
     this.theta = this.targetTheta;
+
+    // 上下方向 (Pitch / Elevation)
+    // マウス下ドラッグ (dy > 0): 上から見下ろす (仰角アップ)
+    // マウス上ドラッグ (dy < 0): 地面に近づく (仰角ダウン)
+    const pitchSpeed = 0.004;
+    this.perspElevation = THREE.MathUtils.clamp(
+      this.perspElevation + deltaY * pitchSpeed,
+      0.08, // 約4.6度 (地面すれすれのローアングル)
+      1.35  // 約77.3度 (真上直前の見下ろしハイアングル)
+    );
+
     this.updateCameraPosition();
   }
 
@@ -3598,12 +3612,12 @@ export class VoxelVRMApp {
       // 右ボタンドラッグ判定 (3D: スムーズ回転 / 2.5D: 45度ステップ回転)
       if (this.rightMouseDown) {
         if (this.cameraSys.mode === '3d') {
-          // 3D視点モード: 45度吸着なしでリアルタイムに滑らか回転
-          if (Math.abs(dx) > 0 || Math.hypot(e.clientX - this.rightStartX, e.clientY - this.rightStartY) > 5) {
+          // 3D視点モード: 水平(Yaw)・上下(Pitch)ともに45度吸着なしで滑らかに回転
+          if (Math.hypot(dx, dy) > 0 || Math.hypot(e.clientX - this.rightStartX, e.clientY - this.rightStartY) > 5) {
             this.hasRightDragged = true;
           }
-          if (canMoveCamera && dx !== 0) {
-            this.cameraSys.rotateSmooth(dx);
+          if (canMoveCamera && (dx !== 0 || dy !== 0)) {
+            this.cameraSys.rotateSmooth(dx, dy);
           }
         } else {
           // 2.5D視点モード: 45pxドラッグごとにカチッと45度刻み回転
