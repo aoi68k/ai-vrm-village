@@ -2507,9 +2507,9 @@ export class VoxelVRMApp {
         }
       },
       (id, name, x, y, z, authType, userHash) => {
-        const isNew = !this.remotePlayers.has(id);
-        if (isNew) {
-          const rp = new RemotePlayerRenderer(id, name);
+        let rp = this.remotePlayers.get(id);
+        if (!rp) {
+          rp = new RemotePlayerRenderer(id, name, authType || 'guest', userHash || '~guest', this.showUserHash);
           rp.group.position.set(x, y, z);
           rp.targetPos.set(x, y, z);
           rp.showUserHash = this.showUserHash;
@@ -2532,6 +2532,20 @@ export class VoxelVRMApp {
           if (this.isInitialSyncDone) {
             this.sounds.playDoorbell();
             this.updateStatus(`🔔 ${name} さんが村に参加しました！`);
+          }
+        } else {
+          // 💡 既存インスタンスがある場合でも、名前が届いたら頭上ネームプレートを即座に更新
+          if (name && (rp.name !== name || !name.startsWith('Player_'))) {
+            rp.updateNamePlate(name, authType || rp.authType, userHash || rp.userHash);
+            this.remotePlayerNames.set(id, name);
+            this.updatePlayerListUI();
+          }
+          if (authType || userHash) {
+            const currentAuth = this.remotePlayerAuth.get(id);
+            const newAuthType = authType || currentAuth?.authType || 'guest';
+            const newUserHash = userHash || currentAuth?.userHash || '~guest';
+            this.remotePlayerAuth.set(id, { authType: newAuthType, userHash: newUserHash });
+            rp.setAuthBadge(newAuthType, newUserHash);
           }
         }
       },
@@ -2584,6 +2598,12 @@ export class VoxelVRMApp {
         if (chatMsg.sessionId !== this.network.room?.sessionId) {
           const rp = this.remotePlayers.get(chatMsg.sessionId);
           if (rp) {
+            // 💡 送信者名が違っていれば頭上ネームプレートも最新化
+            if (chatMsg.senderName && rp.name !== chatMsg.senderName) {
+              rp.updateNamePlate(chatMsg.senderName, chatMsg.authType || rp.authType, chatMsg.userHash || rp.userHash);
+              this.remotePlayerNames.set(chatMsg.sessionId, chatMsg.senderName);
+              this.updatePlayerListUI();
+            }
             rp.showSpeechBubble(chatMsg.text, chatMsg.isStamp);
           }
           const avatarUrl = this.remotePlayerAvatars.get(chatMsg.sessionId);
@@ -2592,9 +2612,10 @@ export class VoxelVRMApp {
         }
       },
       (renamedData) => {
-        // 自分のリネームなら myPlayerName を更新するだけ（remotePlayerNames には追加しない）
+        // 自分のリネームなら myPlayerName を更新
         if (renamedData.id === this.network.room?.sessionId) {
           this.myPlayerName = renamedData.name;
+          this.updateProfileBadgeUI();
           this.updatePlayerListUI();
           return;
         }
@@ -2602,7 +2623,8 @@ export class VoxelVRMApp {
         const rp = this.remotePlayers.get(renamedData.id);
         if (rp) {
           const auth = this.remotePlayerAuth.get(renamedData.id);
-          rp.setAuthBadge(auth?.authType || 'guest', auth?.userHash || '~guest');
+          // 💡 頭上ネームプレートの名前を確実に更新！
+          rp.updateNamePlate(renamedData.name, auth?.authType || 'guest', auth?.userHash || '~guest');
         }
         this.updatePlayerListUI();
       },
@@ -2625,7 +2647,8 @@ export class VoxelVRMApp {
           });
           const rp = this.remotePlayers.get(authData.id);
           if (rp) {
-            rp.setAuthBadge(authData.authType, authData.userHash);
+            const currentName = this.remotePlayerNames.get(authData.id) || rp.name;
+            rp.updateNamePlate(currentName, authData.authType, authData.userHash);
           }
           this.updatePlayerListUI();
         }
