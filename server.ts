@@ -1,6 +1,7 @@
 import colyseus from 'colyseus';
 const { Server, Room } = colyseus;
 type Client = colyseus.Client;
+import { WebSocketTransport } from '@colyseus/ws-transport';
 import { Schema, type, MapSchema } from '@colyseus/schema';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { createHash } from 'crypto';
@@ -672,7 +673,10 @@ const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
 });
 
 const gameServer = new Server({
-  server: httpServer
+  transport: new WebSocketTransport({
+    server: httpServer,
+    maxPayload: 10 * 1024 * 1024 // 10MB: テクスチャ画像や大量ボクセル同期に対応
+  })
 });
 
 gameServer.define('voxel_room', VoxelGameRoom);

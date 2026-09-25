@@ -2031,17 +2031,54 @@ export function getAutoServerUrl(): string {
       return s;
     }
   }
+
+  const host = window.location.hostname || 'localhost';
+  const port = window.location.port;
+  const isLocalDev = (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    host.startsWith('172.') ||
+    host.endsWith('.local') ||
+    port === '5173' ||
+    port === '3000' ||
+    port === '4173'
+  );
+
   const saved = localStorage.getItem('vrm_village_server_url');
   if (saved) {
-    return saved.trim();
+    const trimmed = saved.trim();
+    // ローカル開発環境で、保存されていたURLが Render などの外部サーバーだった場合、
+    // スリープやタイムアウトによる接続不能を防止するためにローカルサーバーを優先
+    if (isLocalDev && trimmed.includes('onrender.com')) {
+      return `ws://${host}:2567`;
+    }
+    return trimmed;
   }
-  const host = window.location.hostname || 'localhost';
-  if (host === 'localhost' || host === '127.0.0.1') {
+
+  if (isLocalDev) {
     return `ws://${host}:2567`;
   }
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // return `${protocol}//${host}:2567`;
+
   return 'https://ai-vrm-village.onrender.com'; // Render.com でホストされている Colyseus サーバーの URL
+}
+
+export interface NetworkCallbacks {
+  onStatusChange: (msg: string, isOnline: boolean) => void;
+  onVoxelAdd: (x: number, y: number, z: number, type: VoxelType, isRemote: boolean) => void;
+  onVoxelRemove: (x: number, y: number, z: number, isRemote: boolean) => void;
+  onPlayerJoin: (id: string, name: string, x: number, y: number, z: number, authType?: string, userHash?: string) => void;
+  onPlayerLeave: (id: string) => void;
+  onPlayerMove: (id: string, x: number, y: number, z: number, rotY: number) => void;
+  onNPCUpdate: (npc: { id: string; name: string; x: number; y: number; z: number; targetX: number; targetZ: number; goal: string; task: string; message: string }) => void;
+  onChatMessage: (msg: { sessionId: string; senderName: string; userHash: string; authType: string; text: string; isStamp: boolean }) => void;
+  onPlayerRenamed: (data: { id: string; name: string }) => void;
+  onPlayerAuthUpdated: (data: { id: string; authType: string; userHash: string; githubUsername: string }) => void;
+  onAuthInit?: (data: { userHash: string; authType: string; githubUsername: string; name: string }) => void;
+  onPlayerColors?: (data: { id: string; hair: string; skin: string; clothing: string }) => void;
+  onPlayerAvatar?: (data: { id: string; dataUrl: string }) => void;
+  onPlayerTextures?: (data: { id: string; faceDataUrl?: string; bodyDataUrl?: string }) => void;
 }
 
 // ============================================================================
@@ -2051,9 +2088,15 @@ export class NetworkController {
   private client: Client;
   public room: Room | null = null;
   public isConnected = false;
+  private currentServerUrl: string;
 
   constructor(serverUrl: string = getAutoServerUrl()) {
+    this.currentServerUrl = serverUrl;
     this.client = new Client(serverUrl);
+  }
+
+  public getCurrentServerUrl(): string {
+    return this.currentServerUrl;
   }
 
   public async connect(
@@ -2073,149 +2116,217 @@ export class NetworkController {
     onPlayerAvatar?: (data: { id: string; dataUrl: string }) => void,
     onPlayerTextures?: (data: { id: string; faceDataUrl?: string; bodyDataUrl?: string }) => void
   ): Promise<boolean> {
+    const callbacks: NetworkCallbacks = {
+      onStatusChange,
+      onVoxelAdd,
+      onVoxelRemove,
+      onPlayerJoin,
+      onPlayerLeave,
+      onPlayerMove,
+      onNPCUpdate,
+      onChatMessage,
+      onPlayerRenamed,
+      onPlayerAuthUpdated,
+      onAuthInit,
+      onPlayerColors,
+      onPlayerAvatar,
+      onPlayerTextures
+    };
+
+    // 1. まず設定されたサーバーURLへ接続試行
     try {
-      onStatusChange('Colyseus サーバーへ接続中...', false);
+      onStatusChange(`Colyseus (${this.currentServerUrl}) へ接続中...`, false);
       this.room = await this.client.joinOrCreate('voxel_room', initialOptions);
       this.isConnected = true;
       onStatusChange(`🟢 ONLINE`, true);
-      console.log('✅ Colyseus ルーム参加完了:', this.room.id);
+      console.log('✅ Colyseus ルーム参加完了:', this.room.id, 'エンドポイント:', this.currentServerUrl);
+      this.setupRoomListeners(this.room, callbacks);
+      return true;
+    } catch (e) {
+      console.warn(`⚠️ 初期サーバー接続失敗 (${this.currentServerUrl}):`, e);
+    }
 
-      this.room.state.voxels.onAdd = (voxel: { x: number; y: number; z: number; type: string }) => {
-        onVoxelAdd(voxel.x, voxel.y, voxel.z, (voxel.type as VoxelType) || 'dirt', true);
-      };
+    // 2. 失敗した場合、ローカルサーバー候補への自動フォールバック接続を試行
+    const host = window.location.hostname || 'localhost';
+    const candidateUrls: string[] = [];
+    const localHostUrl = `ws://${host}:2567`;
+    const localhostUrl = 'ws://localhost:2567';
+    const local127Url = 'ws://127.0.0.1:2567';
 
-      this.room.state.voxels.onRemove = (voxel: { x: number; y: number; z: number }) => {
-        onVoxelRemove(voxel.x, voxel.y, voxel.z, true);
-      };
+    if (this.currentServerUrl !== localHostUrl) candidateUrls.push(localHostUrl);
+    if (host !== 'localhost' && this.currentServerUrl !== localhostUrl && !candidateUrls.includes(localhostUrl)) {
+      candidateUrls.push(localhostUrl);
+    }
+    if (host !== '127.0.0.1' && this.currentServerUrl !== local127Url && !candidateUrls.includes(local127Url)) {
+      candidateUrls.push(local127Url);
+    }
 
-      this.room.state.players.onAdd = (player: { id: string; name: string; x: number; y: number; z: number; rotationY: number; authType?: string; userHash?: string }, sessionId: string) => {
-        if (sessionId !== this.room?.sessionId) {
-          onPlayerJoin(sessionId, player.name || `Player_${sessionId.substring(0, 4)}`, player.x, player.y, player.z, player.authType || 'guest', player.userHash || '~guest');
-        }
-      };
+    for (const fallbackUrl of candidateUrls) {
+      try {
+        console.log(`🔄 フォールバック試行: ${fallbackUrl} へ接続中...`);
+        onStatusChange(`ローカルサーバー (${fallbackUrl}) へ再接続試行中...`, false);
+        const fallbackClient = new Client(fallbackUrl);
+        const room = await fallbackClient.joinOrCreate('voxel_room', initialOptions);
+        this.client = fallbackClient;
+        this.room = room;
+        this.currentServerUrl = fallbackUrl;
+        this.isConnected = true;
+        localStorage.setItem('vrm_village_server_url', fallbackUrl);
+        onStatusChange(`🟢 ONLINE`, true);
+        console.log('✅ Colyseus ローカルサーバーへの接続に成功しました:', fallbackUrl, this.room.id);
+        this.setupRoomListeners(this.room, callbacks);
+        return true;
+      } catch (err) {
+        console.warn(`⚠️ フォールバック接続失敗 (${fallbackUrl}):`, err);
+      }
+    }
 
-      this.room.state.players.onRemove = (_player: unknown, sessionId: string) => {
-        if (sessionId !== this.room?.sessionId) {
-          onPlayerLeave(sessionId);
-        }
-      };
+    // 3. 全て失敗した場合はオフライン自律モードにフォールバック
+    this.isConnected = false;
+    onStatusChange('🟡 OFFLINE (ソロプレイ)', false);
+    console.warn('⚠️ Colyseus サーバー非接続。スタンドアロンモードで動作します。');
+    return false;
+  }
 
-      this.room.state.players.onChange = (player: { x: number; y: number; z: number; rotationY: number }, sessionId: string) => {
-        if (sessionId !== this.room?.sessionId) {
-          onPlayerMove(sessionId, player.x, player.y, player.z, player.rotationY || 0);
-        }
-      };
+  private setupRoomListeners(room: Room, callbacks: NetworkCallbacks): void {
+    const {
+      onStatusChange,
+      onVoxelAdd,
+      onVoxelRemove,
+      onPlayerJoin,
+      onPlayerLeave,
+      onPlayerMove,
+      onNPCUpdate,
+      onChatMessage,
+      onPlayerRenamed,
+      onPlayerAuthUpdated,
+      onAuthInit,
+      onPlayerColors,
+      onPlayerAvatar,
+      onPlayerTextures
+    } = callbacks;
 
-      this.room.state.npcs.onAdd = (npc: { id: string; name: string; x: number; y: number; z: number; targetX: number; targetZ: number; currentGoal: string; currentTask: string; statusMessage: string }) => {
-        onNPCUpdate({
-          id: npc.id,
-          name: npc.name,
-          x: npc.x,
-          y: npc.y,
-          z: npc.z,
-          targetX: npc.targetX,
-          targetZ: npc.targetZ,
-          goal: npc.currentGoal,
-          task: npc.currentTask,
-          message: npc.statusMessage
-        });
-      };
+    room.state.voxels.onAdd = (voxel: { x: number; y: number; z: number; type: string }) => {
+      onVoxelAdd(voxel.x, voxel.y, voxel.z, (voxel.type as VoxelType) || 'dirt', true);
+    };
 
-      this.room.state.npcs.onChange = (npc: { id: string; name: string; x: number; y: number; z: number; targetX: number; targetZ: number; currentGoal: string; currentTask: string; statusMessage: string }) => {
-        onNPCUpdate({
-          id: npc.id,
-          name: npc.name,
-          x: npc.x,
-          y: npc.y,
-          z: npc.z,
-          targetX: npc.targetX,
-          targetZ: npc.targetZ,
-          goal: npc.currentGoal,
-          task: npc.currentTask,
-          message: npc.statusMessage
-        });
-      };
+    room.state.voxels.onRemove = (voxel: { x: number; y: number; z: number }) => {
+      onVoxelRemove(voxel.x, voxel.y, voxel.z, true);
+    };
 
-      // Colyseus State 全体パッチリスナー (毎Tick確実にNPCや他プレイヤーの位置を同期)
-      this.room.onStateChange((state: any) => {
-        if (state.npcs) {
-          state.npcs.forEach((npc: any) => {
-            onNPCUpdate({
-              id: npc.id,
-              name: npc.name,
-              x: npc.x,
-              y: npc.y,
-              z: npc.z,
-              targetX: npc.targetX,
-              targetZ: npc.targetZ,
-              goal: npc.currentGoal,
-              task: npc.currentTask,
-              message: npc.statusMessage
-            });
+    room.state.players.onAdd = (player: { id: string; name: string; x: number; y: number; z: number; rotationY: number; authType?: string; userHash?: string }, sessionId: string) => {
+      if (sessionId !== room.sessionId) {
+        onPlayerJoin(sessionId, player.name || `Player_${sessionId.substring(0, 4)}`, player.x, player.y, player.z, player.authType || 'guest', player.userHash || '~guest');
+      }
+    };
+
+    room.state.players.onRemove = (_player: unknown, sessionId: string) => {
+      if (sessionId !== room.sessionId) {
+        onPlayerLeave(sessionId);
+      }
+    };
+
+    room.state.players.onChange = (player: { x: number; y: number; z: number; rotationY: number }, sessionId: string) => {
+      if (sessionId !== room.sessionId) {
+        onPlayerMove(sessionId, player.x, player.y, player.z, player.rotationY || 0);
+      }
+    };
+
+    room.state.npcs.onAdd = (npc: { id: string; name: string; x: number; y: number; z: number; targetX: number; targetZ: number; currentGoal: string; currentTask: string; statusMessage: string }) => {
+      onNPCUpdate({
+        id: npc.id,
+        name: npc.name,
+        x: npc.x,
+        y: npc.y,
+        z: npc.z,
+        targetX: npc.targetX,
+        targetZ: npc.targetZ,
+        goal: npc.currentGoal,
+        task: npc.currentTask,
+        message: npc.statusMessage
+      });
+    };
+
+    room.state.npcs.onChange = (npc: { id: string; name: string; x: number; y: number; z: number; targetX: number; targetZ: number; currentGoal: string; currentTask: string; statusMessage: string }) => {
+      onNPCUpdate({
+        id: npc.id,
+        name: npc.name,
+        x: npc.x,
+        y: npc.y,
+        z: npc.z,
+        targetX: npc.targetX,
+        targetZ: npc.targetZ,
+        goal: npc.currentGoal,
+        task: npc.currentTask,
+        message: npc.statusMessage
+      });
+    };
+
+    // Colyseus State 全体パッチリスナー (毎Tick確実にNPCや他プレイヤーの位置を同期)
+    room.onStateChange((state: any) => {
+      if (state.npcs) {
+        state.npcs.forEach((npc: any) => {
+          onNPCUpdate({
+            id: npc.id,
+            name: npc.name,
+            x: npc.x,
+            y: npc.y,
+            z: npc.z,
+            targetX: npc.targetX,
+            targetZ: npc.targetZ,
+            goal: npc.currentGoal,
+            task: npc.currentTask,
+            message: npc.statusMessage
           });
-        }
-        if (state.players) {
-          state.players.forEach((player: any, sessionId: string) => {
-            if (sessionId !== this.room?.sessionId) {
-              // onAdd が漏れた・遅延した場合のフォールバック登録
-              onPlayerJoin(sessionId, player.name || `Player_${sessionId.substring(0, 4)}`, player.x, player.y, player.z, player.authType || 'guest', player.userHash || '~guest');
-              onPlayerMove(sessionId, player.x, player.y, player.z, player.rotationY || 0);
-            }
-          });
-        }
-      });
-
-      this.room.onMessage('voxel_destroyed', (data: { x: number; y: number; z: number }) => {
-        onVoxelRemove(data.x, data.y, data.z, true);
-      });
-
-      this.room.onMessage('voxel_placed', (data: { x: number; y: number; z: number; type: VoxelType }) => {
-        onVoxelAdd(data.x, data.y, data.z, data.type, true);
-      });
-
-      this.room.onMessage('chat_message', (data: { sessionId: string; senderName: string; userHash: string; authType: string; text: string; isStamp: boolean }) => {
-        onChatMessage(data);
-      });
-
-      this.room.onMessage('player_renamed', (data: { id: string; name: string }) => {
-        onPlayerRenamed(data);
-      });
-
-      this.room.onMessage('player_auth_updated', (data: { id: string; authType: string; userHash: string; githubUsername: string }) => {
-        onPlayerAuthUpdated(data);
-      });
-
-      this.room.onMessage('player_colors_broadcast', (data: { id: string; hair: string; skin: string; clothing: string }) => {
-        onPlayerColors?.(data);
-      });
-
-      this.room.onMessage('player_avatar_broadcast', (data: { id: string; dataUrl: string }) => {
-        onPlayerAvatar?.(data);
-      });
-
-      this.room.onMessage('player_textures_broadcast', (data: { id: string; faceDataUrl?: string; bodyDataUrl?: string }) => {
-        onPlayerTextures?.(data);
-      });
-
-      // 1. 既存プレイヤーの一括同期メッセージ (参加直後に相手のボックスマン・座標・色を一括復元)
-      this.room.onMessage('existing_players', (data: { players: any[] }) => {
-        data.players.forEach((p) => {
-          if (p.id !== this.room?.sessionId) {
-            onPlayerJoin(p.id, p.name, p.x, p.y, p.z, p.authType, p.userHash);
-            onPlayerMove(p.id, p.x, p.y, p.z, p.rotationY || 0);
-            if (p.colors && onPlayerColors) {
-              onPlayerColors({ id: p.id, ...p.colors });
-            }
-            if (p.avatarUrl && onPlayerAvatar) {
-              onPlayerAvatar({ id: p.id, dataUrl: p.avatarUrl });
-            }
+        });
+      }
+      if (state.players) {
+        state.players.forEach((player: any, sessionId: string) => {
+          if (sessionId !== room.sessionId) {
+            // onAdd が漏れた・遅延した場合のフォールバック登録
+            onPlayerJoin(sessionId, player.name || `Player_${sessionId.substring(0, 4)}`, player.x, player.y, player.z, player.authType || 'guest', player.userHash || '~guest');
+            onPlayerMove(sessionId, player.x, player.y, player.z, player.rotationY || 0);
           }
         });
-      });
+      }
+    });
 
-      // 2. 新プレイヤー参加メッセージ (相手が参加してきた瞬間にボックスマンを即座に出現)
-      this.room.onMessage('player_joined', (p: any) => {
-        if (p.id !== this.room?.sessionId) {
+    room.onMessage('voxel_destroyed', (data: { x: number; y: number; z: number }) => {
+      onVoxelRemove(data.x, data.y, data.z, true);
+    });
+
+    room.onMessage('voxel_placed', (data: { x: number; y: number; z: number; type: VoxelType }) => {
+      onVoxelAdd(data.x, data.y, data.z, data.type, true);
+    });
+
+    room.onMessage('chat_message', (data: { sessionId: string; senderName: string; userHash: string; authType: string; text: string; isStamp: boolean }) => {
+      onChatMessage(data);
+    });
+
+    room.onMessage('player_renamed', (data: { id: string; name: string }) => {
+      onPlayerRenamed(data);
+    });
+
+    room.onMessage('player_auth_updated', (data: { id: string; authType: string; userHash: string; githubUsername: string }) => {
+      onPlayerAuthUpdated(data);
+    });
+
+    room.onMessage('player_colors_broadcast', (data: { id: string; hair: string; skin: string; clothing: string }) => {
+      onPlayerColors?.(data);
+    });
+
+    room.onMessage('player_avatar_broadcast', (data: { id: string; dataUrl: string }) => {
+      onPlayerAvatar?.(data);
+    });
+
+    room.onMessage('player_textures_broadcast', (data: { id: string; faceDataUrl?: string; bodyDataUrl?: string }) => {
+      onPlayerTextures?.(data);
+    });
+
+    // 1. 既存プレイヤーの一括同期メッセージ (参加直後に相手のボックスマン・座標・色を一括復元)
+    room.onMessage('existing_players', (data: { players: any[] }) => {
+      data.players.forEach((p) => {
+        if (p.id !== room.sessionId) {
           onPlayerJoin(p.id, p.name, p.x, p.y, p.z, p.authType, p.userHash);
           onPlayerMove(p.id, p.x, p.y, p.z, p.rotationY || 0);
           if (p.colors && onPlayerColors) {
@@ -2226,46 +2337,53 @@ export class NetworkController {
           }
         }
       });
+    });
 
-      // 3. プレイヤー移動メッセージ (リアルタイム位置同期)
-      this.room.onMessage('player_moved', (data: { id: string; x: number; y: number; z: number; rotationY: number }) => {
-        if (data.id !== this.room?.sessionId) {
-          onPlayerMove(data.id, data.x, data.y, data.z, data.rotationY || 0);
+    // 2. 新プレイヤー参加メッセージ (相手が参加してきた瞬間にボックスマンを即座に出現)
+    room.onMessage('player_joined', (p: any) => {
+      if (p.id !== room.sessionId) {
+        onPlayerJoin(p.id, p.name, p.x, p.y, p.z, p.authType, p.userHash);
+        onPlayerMove(p.id, p.x, p.y, p.z, p.rotationY || 0);
+        if (p.colors && onPlayerColors) {
+          onPlayerColors({ id: p.id, ...p.colors });
         }
-      });
-
-      // 4. プレイヤー退出メッセージ
-      this.room.onMessage('player_left', (data: { id: string }) => {
-        if (data.id !== this.room?.sessionId) {
-          onPlayerLeave(data.id);
+        if (p.avatarUrl && onPlayerAvatar) {
+          onPlayerAvatar({ id: p.id, dataUrl: p.avatarUrl });
         }
-      });
+      }
+    });
 
-      this.room.onMessage('auth_init', (data: { userHash: string; authType: string; githubUsername: string; name: string }) => {
-        onAuthInit?.(data);
-      });
+    // 3. プレイヤー移動メッセージ (リアルタイム位置同期)
+    room.onMessage('player_moved', (data: { id: string; x: number; y: number; z: number; rotationY: number }) => {
+      if (data.id !== room.sessionId) {
+        onPlayerMove(data.id, data.x, data.y, data.z, data.rotationY || 0);
+      }
+    });
 
-      // サーバー切断時・エラー時のオフライン復帰ハンドラー
-      this.room.onLeave((code) => {
-        console.warn('🚪 Colyseus ルーム切断 (code:', code, ')。オフライン自律モードに移行します。');
-        this.isConnected = false;
-        this.room = null;
-        onStatusChange('🟡 OFFLINE (ソロプレイ)', false);
-      });
+    // 4. プレイヤー退出メッセージ
+    room.onMessage('player_left', (data: { id: string }) => {
+      if (data.id !== room.sessionId) {
+        onPlayerLeave(data.id);
+      }
+    });
 
-      this.room.onError((code, message) => {
-        console.warn('⚠️ Colyseus ルームエラー (code:', code, '):', message);
-        this.isConnected = false;
-        onStatusChange('🟡 OFFLINE (ソロプレイ)', false);
-      });
+    room.onMessage('auth_init', (data: { userHash: string; authType: string; githubUsername: string; name: string }) => {
+      onAuthInit?.(data);
+    });
 
-      return true;
-    } catch (e) {
+    // サーバー切断時・エラー時のオフライン復帰ハンドラー
+    room.onLeave((code) => {
+      console.warn('🚪 Colyseus ルーム切断 (code:', code, ')。オフライン自律モードに移行します。');
+      this.isConnected = false;
+      this.room = null;
+      onStatusChange('🟡 OFFLINE (ソロプレイ)', false);
+    });
+
+    room.onError((code, message) => {
+      console.warn('⚠️ Colyseus ルームエラー (code:', code, '):', message);
       this.isConnected = false;
       onStatusChange('🟡 OFFLINE (ソロプレイ)', false);
-      console.warn('⚠️ Colyseus サーバー非接続。スタンドアロンモードで動作します。', e);
-      return false;
-    }
+    });
   }
 
   public sendPlayerMove(x: number, y: number, z: number, rotationY: number): void {
@@ -3452,7 +3570,8 @@ export class VoxelVRMApp {
     });
 
     resetLocalBtn?.addEventListener('click', () => {
-      localStorage.setItem('vrm_village_server_url', 'ws://localhost:2567');
+      const host = window.location.hostname || 'localhost';
+      localStorage.setItem('vrm_village_server_url', `ws://${host}:2567`);
       window.location.href = window.location.pathname;
     });
 
@@ -3557,7 +3676,7 @@ export class VoxelVRMApp {
       }
       const serverInput = document.getElementById('input-server-url') as HTMLInputElement | null;
       if (serverInput) {
-        serverInput.value = getAutoServerUrl();
+        serverInput.value = this.network.getCurrentServerUrl();
       }
       const hashCheckbox = document.getElementById('checkbox-show-hash') as HTMLInputElement | null;
       if (hashCheckbox) {
