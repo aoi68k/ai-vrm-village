@@ -282,6 +282,39 @@ export function createAvatarThumbnail(dataUrl: string, size = 64): Promise<strin
   });
 }
 
+// ネットワーク共有用にボックスマン前面テクスチャを軽量 JPEG に圧縮 (最大256px, 品質0.82)
+export function compressTextureForSync(dataUrl: string, maxDim = 256, quality = 0.82): Promise<string> {
+  return new Promise((resolve) => {
+    if (!dataUrl) return resolve('');
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width || 256;
+      let h = img.height || 256;
+      if (w > maxDim || h > maxDim) {
+        if (w >= h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } else {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 // テクスチャ画像またはマテリアルから代表色を抽出するヘルパー
 export function sampleTextureColor(mat: THREE.Material): string | null {
   const m = mat as any;
@@ -1296,6 +1329,10 @@ export class RemotePlayerRenderer {
   private rightArm: THREE.Mesh;
   private body: THREE.Mesh;
   private head: THREE.Mesh;
+  private headBaseMat: THREE.MeshStandardMaterial;
+  private bodyBaseMat: THREE.MeshStandardMaterial;
+  private frontHeadMat?: THREE.MeshStandardMaterial;
+  private frontBodyMat?: THREE.MeshStandardMaterial;
 
   // ネームプレート
   private nameCanvas: HTMLCanvasElement;
@@ -1319,15 +1356,15 @@ export class RemotePlayerRenderer {
     public showUserHash: boolean = false
   ) {
     const bodyGeo = new THREE.BoxGeometry(0.5, 0.7, 0.35);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
-    this.body = new THREE.Mesh(bodyGeo, bodyMat);
+    this.bodyBaseMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
+    this.body = new THREE.Mesh(bodyGeo, this.bodyBaseMat);
     this.body.position.y = 0.5;
     this.body.castShadow = true;
     this.group.add(this.body);
 
     const headGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047 });
-    this.head = new THREE.Mesh(headGeo, headMat);
+    this.headBaseMat = new THREE.MeshStandardMaterial({ color: 0xfde047 });
+    this.head = new THREE.Mesh(headGeo, this.headBaseMat);
     this.head.position.y = 1.05;
     this.head.castShadow = true;
     this.group.add(this.head);
@@ -1374,14 +1411,74 @@ export class RemotePlayerRenderer {
 
   // VRM由来の配色をボックスマンに適用 (hair→頭, skin→腕, clothing→胴体)
   public setColors(hair: string, skin: string, clothing: string): void {
-    const headMat = this.head.material as THREE.MeshStandardMaterial;
-    const bodyMat = this.body.material as THREE.MeshStandardMaterial;
+    this.headBaseMat.color.set(hair);
+    this.headBaseMat.needsUpdate = true;
+    this.bodyBaseMat.color.set(clothing);
+    this.bodyBaseMat.needsUpdate = true;
     const lArmMat = this.leftArm.material as THREE.MeshStandardMaterial;
     const rArmMat = this.rightArm.material as THREE.MeshStandardMaterial;
-    if (headMat) { headMat.color.set(hair); headMat.needsUpdate = true; }
-    if (bodyMat) { bodyMat.color.set(clothing); bodyMat.needsUpdate = true; }
     if (lArmMat) { lArmMat.color.set(skin); lArmMat.needsUpdate = true; }
     if (rArmMat) { rArmMat.color.set(skin); rArmMat.needsUpdate = true; }
+
+    // 前面テクスチャ適用済みの場合は前面マテリアルを維持したまま更新
+    if (Array.isArray(this.head.material)) {
+      this.head.material[4] = this.frontHeadMat || this.headBaseMat;
+      this.head.material.forEach((m) => { m.needsUpdate = true; });
+    }
+    if (Array.isArray(this.body.material)) {
+      this.body.material[4] = this.frontBodyMat || this.bodyBaseMat;
+      this.body.material.forEach((m) => { m.needsUpdate = true; });
+    }
+  }
+
+  // ボックスマン前面への撮影テクスチャ適用 (顔: head前面, 首から下: body前面)
+  public applyBoxmanTextures(faceDataUrl?: string, bodyDataUrl?: string): void {
+    if (faceDataUrl) {
+      const faceImg = new Image();
+      faceImg.onload = () => {
+        const tex = new THREE.CanvasTexture(faceImg);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        this.frontHeadMat = new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.35,
+          color: 0xffffff
+        });
+        // BoxGeometry face index: [ +X(right), -X(left), +Y(top), -Y(bottom), +Z(front), -Z(back) ]
+        this.head.material = [
+          this.headBaseMat,
+          this.headBaseMat,
+          this.headBaseMat,
+          this.headBaseMat,
+          this.frontHeadMat,
+          this.headBaseMat
+        ];
+        this.head.material.forEach((m) => { m.needsUpdate = true; });
+      };
+      faceImg.src = faceDataUrl;
+    }
+
+    if (bodyDataUrl) {
+      const bodyImg = new Image();
+      bodyImg.onload = () => {
+        const tex = new THREE.CanvasTexture(bodyImg);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        this.frontBodyMat = new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.4,
+          color: 0xffffff
+        });
+        this.body.material = [
+          this.bodyBaseMat,
+          this.bodyBaseMat,
+          this.bodyBaseMat,
+          this.bodyBaseMat,
+          this.frontBodyMat,
+          this.bodyBaseMat
+        ];
+        this.body.material.forEach((m) => { m.needsUpdate = true; });
+      };
+      bodyImg.src = bodyDataUrl;
+    }
   }
 
   public updateNamePlate(name: string, authType = 'guest', userHash = '~guest'): void {
@@ -1973,7 +2070,8 @@ export class NetworkController {
     onPlayerAuthUpdated: (data: { id: string; authType: string; userHash: string; githubUsername: string }) => void,
     onAuthInit?: (data: { userHash: string; authType: string; githubUsername: string; name: string }) => void,
     onPlayerColors?: (data: { id: string; hair: string; skin: string; clothing: string }) => void,
-    onPlayerAvatar?: (data: { id: string; dataUrl: string }) => void
+    onPlayerAvatar?: (data: { id: string; dataUrl: string }) => void,
+    onPlayerTextures?: (data: { id: string; faceDataUrl?: string; bodyDataUrl?: string }) => void
   ): Promise<boolean> {
     try {
       onStatusChange('Colyseus サーバーへ接続中...', false);
@@ -2095,6 +2193,10 @@ export class NetworkController {
         onPlayerAvatar?.(data);
       });
 
+      this.room.onMessage('player_textures_broadcast', (data: { id: string; faceDataUrl?: string; bodyDataUrl?: string }) => {
+        onPlayerTextures?.(data);
+      });
+
       // 1. 既存プレイヤーの一括同期メッセージ (参加直後に相手のボックスマン・座標・色を一括復元)
       this.room.onMessage('existing_players', (data: { players: any[] }) => {
         data.players.forEach((p) => {
@@ -2214,6 +2316,12 @@ export class NetworkController {
     }
   }
 
+  public sendPlayerTextures(faceDataUrl?: string, bodyDataUrl?: string): void {
+    if (this.isConnected && this.room && (faceDataUrl || bodyDataUrl)) {
+      this.room.send('player_textures', { faceDataUrl, bodyDataUrl });
+    }
+  }
+
   public sendAuthVerify(authType: 'github' | 'guest', githubId?: string, githubUsername?: string): void {
     if (this.isConnected && this.room) {
       this.room.send('auth_verify', { authType, githubId, githubUsername });
@@ -2258,6 +2366,9 @@ export class VoxelVRMApp {
 
   // リモートプレイヤーのアバターアイコン (sessionId -> base64 data URL)
   private remotePlayerAvatars = new Map<string, string>();
+
+  // リモートプレイヤーのボックスマン前面テクスチャ (sessionId -> { faceDataUrl, bodyDataUrl })
+  private remotePlayerTextures = new Map<string, { faceDataUrl?: string; bodyDataUrl?: string }>();
 
   // 自分自身の頭上吹き出し
   private myBubbleSprite: THREE.Sprite | null = null;
@@ -2403,6 +2514,13 @@ export class VoxelVRMApp {
           rp.targetPos.set(x, y, z);
           rp.showUserHash = this.showUserHash;
           rp.setAuthBadge(authType || 'guest', userHash || '~guest');
+
+          // 💡 もし既にテクスチャ情報を受信していれば即座に適用
+          const cachedTex = this.remotePlayerTextures.get(id);
+          if (cachedTex) {
+            rp.applyBoxmanTextures(cachedTex.faceDataUrl, cachedTex.bodyDataUrl);
+          }
+
           this.scene.add(rp.group);
           this.remotePlayers.set(id, rp);
           this.remotePlayerNames.set(id, name);
@@ -2425,6 +2543,7 @@ export class VoxelVRMApp {
           this.remotePlayers.delete(id);
           this.remotePlayerNames.delete(id);
           this.remotePlayerAuth.delete(id);
+          this.remotePlayerTextures.delete(id);
 
           this.updatePlayerListUI();
 
@@ -2531,6 +2650,17 @@ export class VoxelVRMApp {
         this.remotePlayerAvatars.set(avatarData.id, avatarData.dataUrl);
         this.updatePlayerListUI(); // プレイヤー一覧を再描画
         this.updateChatAvatars(avatarData.id, avatarData.dataUrl); // 該当プレイヤーの過去チャットにもアバター適用
+      },
+      // onPlayerTextures: ボックスマン前面テクスチャ（顔・体）を同室プレイヤーに適用
+      (textureData) => {
+        this.remotePlayerTextures.set(textureData.id, {
+          faceDataUrl: textureData.faceDataUrl,
+          bodyDataUrl: textureData.bodyDataUrl
+        });
+        const rp = this.remotePlayers.get(textureData.id);
+        if (rp) {
+          rp.applyBoxmanTextures(textureData.faceDataUrl, textureData.bodyDataUrl);
+        }
       }
     );
 
@@ -2549,6 +2679,20 @@ export class VoxelVRMApp {
       this.avatar.position.z,
       this.avatar.rotationY
     );
+
+    // 💡 保存済みのボックスマン配色および前面テクスチャがあればサーバーへ共有
+    const savedColors = localStorage.getItem('vrm_village_boxman_colors');
+    if (savedColors) {
+      try {
+        const c = JSON.parse(savedColors);
+        this.network.sendPlayerColors(c.hair, c.skin, c.clothing);
+      } catch (e) {}
+    }
+    const savedFace = localStorage.getItem('vrm_village_boxman_face_tex');
+    const savedBody = localStorage.getItem('vrm_village_boxman_body_tex');
+    if (savedFace || savedBody) {
+      this.broadcastMyBoxmanTextures(savedFace || '', savedBody || '');
+    }
 
     // 直ちにアニメーションループを開始（VRM読み込み前はボックスマンで即座に操作可能）
     this.animate();
@@ -2889,6 +3033,7 @@ export class VoxelVRMApp {
       this.avatar.applyBoxmanTextures(captured.faceDataUrl, captured.bodyDataUrl);
       localStorage.setItem('vrm_village_boxman_face_tex', captured.faceDataUrl);
       localStorage.setItem('vrm_village_boxman_body_tex', captured.bodyDataUrl);
+      this.broadcastMyBoxmanTextures(captured.faceDataUrl, captured.bodyDataUrl);
     }
 
     // VRMテクスチャおよび顔写真から代表色を抽出してサーバーへ送信 ＆ 自キャラボックスマンに反映
@@ -2905,10 +3050,28 @@ export class VoxelVRMApp {
         this.avatar.applyBoxmanTextures(finalCaptured.faceDataUrl, finalCaptured.bodyDataUrl);
         localStorage.setItem('vrm_village_boxman_face_tex', finalCaptured.faceDataUrl);
         localStorage.setItem('vrm_village_boxman_body_tex', finalCaptured.bodyDataUrl);
+        // 💡 ルーム内の他プレイヤーへ確定テクスチャを共有
+        this.broadcastMyBoxmanTextures(finalCaptured.faceDataUrl, finalCaptured.bodyDataUrl);
       }
     });
 
     this.updateAvatarToggleBtnUI();
+  }
+
+  // 自キャラのボックスマン前面テクスチャを軽量圧縮してルーム内全員へブロードキャスト
+  private async broadcastMyBoxmanTextures(faceDataUrl: string, bodyDataUrl: string): Promise<void> {
+    if (!faceDataUrl && !bodyDataUrl) return;
+    try {
+      const [compFace, compBody] = await Promise.all([
+        faceDataUrl ? compressTextureForSync(faceDataUrl, 256, 0.82) : Promise.resolve(''),
+        bodyDataUrl ? compressTextureForSync(bodyDataUrl, 256, 0.82) : Promise.resolve('')
+      ]);
+      this.network.sendPlayerTextures(compFace, compBody);
+      console.log('📡 [Boxman Textures Synced to Room]');
+    } catch (e) {
+      console.warn('テクスチャ圧縮・送信エラー:', e);
+      this.network.sendPlayerTextures(faceDataUrl, bodyDataUrl);
+    }
   }
 
   // アバター情報モーダル内のVRM / ボックスマン切り替えボタンUI更新

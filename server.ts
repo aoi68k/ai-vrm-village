@@ -146,6 +146,7 @@ export class VoxelGameRoom extends Room<GameWorldState> {
   private simulationInterval: any = null;
   private playerAvatars = new Map<string, string>();
   private playerColors = new Map<string, { hair: string; skin: string; clothing: string }>();
+  private playerTextures = new Map<string, { faceDataUrl?: string; bodyDataUrl?: string }>();
 
   onCreate(options: any) {
     this.setState(new GameWorldState());
@@ -198,12 +199,15 @@ export class VoxelGameRoom extends Room<GameWorldState> {
       name: player.name
     });
 
-    // 既存プレイヤーのアバター画像と配色を新規参加者に個別に送信
+    // 既存プレイヤーのアバター画像と配色、およびボックスマン前面テクスチャを新規参加者に個別に送信
     this.playerAvatars.forEach((dataUrl, pid) => {
       client.send('player_avatar_broadcast', { id: pid, dataUrl });
     });
     this.playerColors.forEach((colors, pid) => {
       client.send('player_colors_broadcast', { id: pid, ...colors });
+    });
+    this.playerTextures.forEach((tex, pid) => {
+      client.send('player_textures_broadcast', { id: pid, faceDataUrl: tex.faceDataUrl, bodyDataUrl: tex.bodyDataUrl });
     });
 
     // 1. 新規参加者へ既存の全プレイヤー情報を一括送信
@@ -256,6 +260,7 @@ export class VoxelGameRoom extends Room<GameWorldState> {
     this.state.players.delete(client.sessionId);
     this.playerAvatars.delete(client.sessionId);
     this.playerColors.delete(client.sessionId);
+    this.playerTextures.delete(client.sessionId);
     console.log(`🚪 [Leave] Player (${client.sessionId}) disconnected.`);
 
     // プレイヤー退出を全員に通知
@@ -448,6 +453,18 @@ export class VoxelGameRoom extends Room<GameWorldState> {
         this.broadcast("player_avatar_broadcast", {
           id: client.sessionId,
           dataUrl: data.dataUrl
+        }, { except: client });
+      }
+    });
+
+    // ボックスマン前面テクスチャ（顔・体）を受信しキャッシュ＆ブロードキャスト
+    this.onMessage("player_textures", (client, data: { faceDataUrl?: string; bodyDataUrl?: string }) => {
+      if (data) {
+        this.playerTextures.set(client.sessionId, data);
+        this.broadcast("player_textures_broadcast", {
+          id: client.sessionId,
+          faceDataUrl: data.faceDataUrl,
+          bodyDataUrl: data.bodyDataUrl
         }, { except: client });
       }
     });
